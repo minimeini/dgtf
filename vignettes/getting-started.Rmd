@@ -132,11 +132,12 @@ fit <- dgtf(
 )
 ```
 
+
+# 4. Inspect
+
 ```{r}
 plot_ts(log1p(exp(fit$fit$psi)), ts_true = log1p(exp(c(sim$psi[1:190]))), ylab = "Rt")
 ```
-
-# 4. Inspect
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
@@ -145,9 +146,6 @@ ppc <- posterior_predict(fit, nrep = 100,
 plot_ts(ppc$yhat, ts_true = c(sim$y[1:190]), ylab = "y", main = "Posterior predictive check")
 ```
 
-```{r diagnostics}
-dgtf_diagnostics(fit)
-```
 
 # 5. Switch the inference method
 
