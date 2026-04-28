@@ -10,8 +10,9 @@
 ```
 git clone git@github.com:minimeini/dgtf.git
 ```
-2. Install the R package
-    - In terminal: `R CMD build.`
+2. Change directory to the repository: `cd dgtf`
+3. Install the R package
+    - In terminal: `R CMD build .`
     - Or in R: `devtools::install(".")`
 
 

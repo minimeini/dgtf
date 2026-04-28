@@ -12,8 +12,52 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6,
                       fig.height = 4)
 ```
 
+
 ```{r setup}
 library(dgtf)
+
+
+library(ggplot2)
+#' Plot the posterior trajectory of a time series
+plot_ts <- function(
+    ts_quantile, 
+    ts_true = NULL,
+    main = "Posterior",
+    ylab = "y",
+    show_caption = FALSE) {
+    ymin <- min(c(ts_quantile))
+    ymax <- max(c(ts_quantile))
+
+    dat <- data.frame(
+        ts = ts_quantile[, 2],
+        ts_min = ts_quantile[, 1],
+        ts_max = ts_quantile[, 3],
+        time = 0:(dim(ts_quantile)[1] - 1)
+    )
+
+    if (!is.null(ts_true)) {
+        dat$true <- ts_true
+    }
+
+    p <- ggplot(data = dat, aes(x = time, y = ts)) +
+        theme_minimal() +
+        geom_ribbon(aes(ymin = ts_min, ymax = ts_max), alpha = 0.5, fill = "lightgrey") +
+        geom_line(na.rm = TRUE) +
+        ylab(ylab) +
+        labs(title = main)
+
+    if (!is.null(ts_true)) {
+        p <- p + geom_line(
+            aes(y = true, x = time),
+            data = dat,
+            color = "maroon", alpha = 0.8
+        )
+    }
+
+
+    return(p)
+}
+
 ```
 
 # 1. The DGTF model class
@@ -36,7 +80,7 @@ mod <- dgtf_model(
   gain        = gain_softplus(),
   lag         = lag_lognormal(meanlog = 1.386262, sdlog = 0.3226017, window = 30),
   err         = err_gaussian(W = 0.01),
-  seasonality = seas_period(7, init = c(1:7)),
+  seasonality = seas_period(1, init = 2),
   zi          = FALSE
 )
 mod
@@ -80,37 +124,25 @@ prior <- dgtf_prior(
 )
 
 fit <- dgtf(
-  y       = c(sim$y),
+  y       = c(sim$y)[1:190],
   model   = mod,
   prior   = prior,
   method  = "hva",
-  control = vb_control(iter = 1000, n_sample = 1000, n_particle = 500)
+  control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-Rt = log(exp(c(sim$psi)) + 1)
-fit$error = dgtf_posterior_predictive(fit$fit, as_settings(mod), c(sim$y), 100, Rt)
+```
+
+```{r}
+plot_ts(log1p(exp(fit$fit$psi)), ts_true = log1p(exp(c(sim$psi[1:190]))), ylab = "Rt")
 ```
 
 # 4. Inspect
 
-```{r summary}
-summary(fit)
-coef(fit)
-```
-
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
 ppc <- posterior_predict(fit, nrep = 100,
-                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
-
-# Out-of-sample h-step-ahead forecast
-fc  <- dgtf_forecast_fit(fit, h = 14, nrep = 200)
-
-# With held-out truth for scoring
-fc_eval <- dgtf_forecast_fit(fit, h = 14, nrep = 200,
-                             ypred_true = sim$y[181:200])
-
-# The standard predict() generic works too — delegates to the same engine
-fc_via_predict <- predict(fit, horizon = 14, nrep = 200)
+                         Rt = log1p(exp(c(sim$psi[1:190]))))   # truth in a sim study
+plot_ts(ppc$yhat, ts_true = c(sim$y[1:190]), ylab = "y", main = "Posterior predictive check")
 ```
 
 ```{r diagnostics}
@@ -123,9 +155,13 @@ The `model` and `prior` objects are reusable across methods — only the
 control changes:
 
 ```{r switch-method, eval = FALSE}
-fit_mcmc <- dgtf(sim$y, mod, prior,
+fit_mcmc <- dgtf(sim$y[1:190], mod, prior,
                  method  = "mcmc",
-                 control = mcmc_control(iter = 1000, warmup = 500))
+                 control = mcmc_control(iter = 10000, warmup = 2000, thin = 2))
+```
+
+```{r}
+plot_ts(log1p(exp(fit_mcmc$fit$psi)), ts_true = log1p(exp(c(sim$psi[1:190]))), ylab = "Rt")
 ```
 
 # 6. Swap a component to change the model

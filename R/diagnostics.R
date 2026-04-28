@@ -80,3 +80,44 @@ plot_elbo <- function(object) {
          main = "Variational ELBO trajectory")
     invisible(NULL)
 }
+
+
+#' Plot the posterior trajectory of a time series
+plot_ts <- function(
+    ts_quantile, 
+    ts_true = NULL,
+    main = "Posterior",
+    ylab = "y",
+    show_caption = FALSE) {
+    ymin <- min(c(ts_quantile))
+    ymax <- max(c(ts_quantile))
+
+    dat <- data.frame(
+        ts = ts_quantile[, 2],
+        ts_min = ts_quantile[, 1],
+        ts_max = ts_quantile[, 3],
+        time = 0:(dim(ts_quantile)[1] - 1)
+    )
+
+    if (!is.null(ts_true)) {
+        dat$true <- ts_true
+    }
+
+    p <- ggplot(data = dat, aes(x = time, y = ts)) +
+        theme_minimal() +
+        geom_ribbon(aes(ymin = ts_min, ymax = ts_max), alpha = 0.5, fill = "lightgrey") +
+        geom_line(na.rm = TRUE) +
+        ylab(ylab) +
+        labs(title = main)
+
+    if (!is.null(ts_true)) {
+        p <- p + geom_line(
+            aes(y = true, x = time),
+            data = dat,
+            color = "maroon", alpha = 0.8
+        )
+    }
+
+
+    return(p)
+}

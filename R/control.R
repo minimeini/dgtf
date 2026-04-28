@@ -65,8 +65,8 @@ mcmc_control <- function(iter   = 2000L,
                          chains = 1L,
                          ...) {
     new_control("mcmc", list(
-        niter  = as.integer(iter),
-        nburn  = as.integer(warmup),
+        nsample  = as.integer(iter),
+        nburnin  = as.integer(warmup),
         nthin  = as.integer(thin),
         chains = as.integer(chains),
         extra  = list(...)
