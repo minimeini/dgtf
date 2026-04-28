@@ -29,4 +29,4 @@ git clone git@github.com:minimeini/dgtf.git
 
 ## License
 
-MIT (see [`LICENSE.md`](LICENSE.md)).
+MIT (see [`LICENSE`](LICENSE)).
