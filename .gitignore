@@ -1,0 +1,35 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+*.rmarkdown
+*.vscode*
+.DS_Store
+
+# Compiled C++/R artefacts
+src/*.o
+src/*.so
+src/*.dll
+src/*.rds
+src/symbols.rds
+
+# Rcpp::compileAttributes-generated files (regenerated on every build)
+src/RcppExports.cpp
+R/RcppExports.R
+
+# Built docs / outputs
+docs/
+inst/doc/
+*.tar.gz
+
+# User scratch
+sim_*
+script*
+*tmp*
+*hcp*
+*external*
+*copy*
+external_methods.r
+load_data.r
+plot_timeseries_creditble_interval.r

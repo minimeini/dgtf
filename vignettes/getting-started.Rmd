@@ -1,0 +1,142 @@
+---
+title: "Getting started with dgtf"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with dgtf}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6,
+                      fig.height = 4)
+```
+
+```{r setup}
+library(dgtf)
+```
+
+# 1. The DGTF model class
+
+A **dynamic generalised transfer function (DGTF)** model has three pieces:
+
+- an *observation* distribution (Poisson, negative-binomial, ...),
+- a *link* function and *transfer / lag* structure that connects past
+  observations and the latent state to the current intensity, and
+- a *system* equation governing how the latent state evolves.
+
+In `dgtf` each piece is its own component object, so you build a model
+by snapping the parts together:
+
+```{r build-model}
+mod <- dgtf_model(
+  obs         = obs_nbinom(),
+  link        = link_identity(),
+  sys         = sys_shift(),
+  gain        = gain_softplus(),
+  lag         = lag_lognormal(meanlog = 1.386262, sdlog = 0.3226017, window = 30),
+  err         = err_gaussian(W = 0.01),
+  seasonality = seas_period(7, init = c(1:7)),
+  zi          = FALSE
+)
+mod
+```
+
+Most components also accept a string shortcut; the call above is
+equivalent to `dgtf_model(obs = "nbinom", link = "identity",
+sys = "shift", gain = "softplus", lag = lag_lognormal(...), ...)`.
+
+For the canonical models discussed in the manuscript there are
+one-line shortcuts:
+
+```{r canonical}
+dgtf_poisson_ar(p = 3)
+dgtf_hawkes()
+dgtf_koyck(kappa = 0.5)
+dgtf_distributed_lag(r = 2, kappa = 0.5)
+```
+
+# 2. Simulate
+
+```{r simulate}
+sim <- dgtf_simulate_model(mod, ntime = 200, seed = 3269)
+str(sim, max.level = 1)
+plot(c(sim$y), type = "l", col = "grey50",
+     xlab = "time", ylab = "y", main = "Simulated DGTF series")
+```
+
+# 3. Inference
+
+The "what to infer" decision follows a single rule: anything you give a
+prior is treated as unknown; anything you don't is fixed at the value
+you supplied to `dgtf_model()`.
+
+```{r infer}
+prior <- dgtf_prior(
+  seasonality = normal(1, 1),
+  W           = inv_gamma(1, 1),
+  rho         = inv_gamma(1, 1),
+  lag         = list(par1 = normal(0, 1), par2 = inv_gamma(1, 1))
+)
+
+fit <- dgtf(
+  y       = c(sim$y),
+  model   = mod,
+  prior   = prior,
+  method  = "hva",
+  control = vb_control(iter = 1000, n_sample = 1000, n_particle = 500)
+)
+Rt = log(exp(c(sim$psi)) + 1)
+fit$error = dgtf_posterior_predictive(fit$fit, as_settings(mod), c(sim$y), 100, Rt)
+```
+
+# 4. Inspect
+
+```{r summary}
+summary(fit)
+coef(fit)
+```
+
+```{r plot, fig.alt = "Posterior intensity vs simulated series"}
+# In-sample posterior predictive check
+ppc <- posterior_predict(fit, nrep = 100,
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+
+# Out-of-sample h-step-ahead forecast
+fc  <- dgtf_forecast_fit(fit, h = 14, nrep = 200)
+
+# With held-out truth for scoring
+fc_eval <- dgtf_forecast_fit(fit, h = 14, nrep = 200,
+                             ypred_true = sim$y[181:200])
+
+# The standard predict() generic works too — delegates to the same engine
+fc_via_predict <- predict(fit, horizon = 14, nrep = 200)
+```
+
+```{r diagnostics}
+dgtf_diagnostics(fit)
+```
+
+# 5. Switch the inference method
+
+The `model` and `prior` objects are reusable across methods — only the
+control changes:
+
+```{r switch-method, eval = FALSE}
+fit_mcmc <- dgtf(sim$y, mod, prior,
+                 method  = "mcmc",
+                 control = mcmc_control(iter = 1000, warmup = 500))
+```
+
+# 6. Swap a component to change the model
+
+The same data can be analysed under a different DGTF variant by
+substituting one component:
+
+```{r swap, eval = FALSE}
+mod_geo  <- dgtf_hawkes(lag = lag_nbinom(r = 1, kappa = 0.5, window = 30))
+mod_relu <- dgtf_hawkes(gain = gain_ramp())
+```
+
+A side-by-side comparison of all four canonical models on the same
+dataset will appear in `vignette("four-models")`.

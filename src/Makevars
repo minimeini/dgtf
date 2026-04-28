@@ -1,0 +1,22 @@
+CXX_STD = CXX17
+
+# OpenMP is intentionally NOT enabled here. The C++ engine contains
+# unconditional `#pragma omp parallel` blocks (in SequentialMonteCarlo.hpp
+# and ImportanceDensity.hpp) that have a race condition — running them
+# with -fopenmp on causes a null-pointer dereference in the HVA path.
+# Rcpp::sourceCpp doesn't enable OpenMP either (no plugins(openmp) marker
+# in export.cpp), so disabling here matches the path the user has
+# confirmed working. Re-enable once the parallel sections are audited
+# and made thread-safe.
+#
+# Use += so flags from ~/.R/Makevars (e.g. -L/opt/homebrew/opt/libomp/lib
+# -lomp -Wl,-rpath,...) are preserved rather than overwritten.
+# PKG_CPPFLAGS += $(SHLIB_OPENMP_CXXFLAGS) -UNDEBUG
+# PKG_CXXFLAGS += $(SHLIB_OPENMP_CXXFLAGS)
+# PKG_LIBS    += $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
+#
+#
+# -UNDEBUG keeps Armadillo bounds checking on (R defines -DNDEBUG by
+# default for package builds, which silences arma::vec::at() checks).
+PKG_CPPFLAGS += -UNDEBUG
+PKG_LIBS    += $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
