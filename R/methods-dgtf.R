@@ -222,32 +222,32 @@ summary.dgtf_fit <- function(object, ...) {
                                   m$seasonality$period %||% NA,
                                   isTRUE(m$seasonality$in_state))
                       else NA_character_,
-        zi          = isTRUE(m$zi$enabled %||% FALSE)
+        zi          = isTRUE(m$zi)
     )
 
-    # HVA-only convergence block (uses fit$marglik trace).
-    convergence <- NULL
-    if (identical(method, "hva") && !is.null(f$marglik)) {
-        ml <- as.numeric(f$marglik)
-        last_delta <- if (length(ml) >= 2L) abs(diff(utils::tail(ml, 2L))) else NA_real_
-        # Plateau: first index where 50-iter rolling SD < 1% * |median(ml)|.
-        plateau_iter <- NA_integer_
-        if (length(ml) >= 100L) {
-            win <- 50L
-            thr <- 0.01 * abs(stats::median(ml))
-            sds <- vapply(seq_len(length(ml) - win + 1L),
-                          function(i) stats::sd(ml[i:(i + win - 1L)]),
-                          numeric(1))
-            hit <- which(sds < thr)
-            if (length(hit)) plateau_iter <- hit[1L]
-        }
-        convergence <- list(
-            final_log_marglik = utils::tail(ml, 1L),
-            last_delta        = last_delta,
-            iterations        = length(ml),
-            plateau_iter      = plateau_iter
-        )
-    }
+    # # HVA-only convergence block (uses fit$marglik trace).
+    # convergence <- NULL
+    # if (identical(method, "hva") && !is.null(f$marglik)) {
+    #     ml <- as.numeric(f$marglik)
+    #     last_delta <- if (length(ml) >= 2L) abs(diff(utils::tail(ml, 2L))) else NA_real_
+    #     # Plateau: first index where 50-iter rolling SD < 1% * |median(ml)|.
+    #     plateau_iter <- NA_integer_
+    #     if (length(ml) >= 100L) {
+    #         win <- 50L
+    #         thr <- 0.01 * abs(stats::median(ml))
+    #         sds <- vapply(seq_len(length(ml) - win + 1L),
+    #                       function(i) stats::sd(ml[i:(i + win - 1L)]),
+    #                       numeric(1))
+    #         hit <- which(sds < thr)
+    #         if (length(hit)) plateau_iter <- hit[1L]
+    #     }
+    #     convergence <- list(
+    #         final_log_marglik = utils::tail(ml, 1L),
+    #         last_delta        = last_delta,
+    #         iterations        = length(ml),
+    #         plateau_iter      = plateau_iter
+    #     )
+    # }
 
     # MCMC-only HMC block (uses fit$hmc).
     hmc <- NULL

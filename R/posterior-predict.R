@@ -96,6 +96,67 @@ print.dgtf_ppc <- function(x, digits = 3L, ...) {
 }
 
 
+#' @export
+summary.dgtf_ppc <- function(object, ...) {
+    lvl <- object$level %||% 0.95
+
+    rows <- list(
+        list(target = "y",  metric = "chi-square",     value = object$chi),
+        list(target = "y",  metric = "CRPS",           value = object$crps),
+        list(target = "y",  metric = "coverage",       value = object$coverage_yhat),
+        list(target = "y",  metric = "width",          value = object$width_yhat),
+        list(target = "y",  metric = "interval_score", value = object$interval_score_yhat),
+        list(target = "Rt", metric = "MAE",            value = object$mae_Rt),
+        list(target = "Rt", metric = "RMSE",           value = object$rmse_Rt),
+        list(target = "Rt", metric = "coverage",       value = object$coverage_Rt),
+        list(target = "Rt", metric = "width",          value = object$width_Rt),
+        list(target = "Rt", metric = "interval_score", value = object$interval_score_Rt)
+    )
+    rows <- Filter(function(r) !is.null(r$value) && is.finite(r$value), rows)
+    metrics <- data.frame(
+        target        = vapply(rows, `[[`, character(1), "target"),
+        metric        = vapply(rows, `[[`, character(1), "metric"),
+        value         = vapply(rows, `[[`, numeric(1),   "value"),
+        nominal_level = lvl,
+        row.names     = NULL,
+        stringsAsFactors = FALSE
+    )
+
+    cal_dev <- list()
+    if (!is.null(object$coverage_yhat))
+        cal_dev$y  <- object$coverage_yhat - lvl
+    if (!is.null(object$coverage_Rt))
+        cal_dev$Rt <- object$coverage_Rt - lvl
+
+    out <- list(
+        level                 = lvl,
+        metrics               = metrics,
+        calibration_deviation = cal_dev
+    )
+    class(out) <- c("summary.dgtf_ppc", "list")
+    out
+}
+
+
+#' @export
+print.summary.dgtf_ppc <- function(x, digits = 3L, ...) {
+    cat(sprintf("<dgtf posterior predictive summary, level = %.0f%%>\n",
+                100 * x$level))
+    cat("\nScalar metrics:\n")
+    m <- x$metrics
+    m$value         <- formatC(m$value,         digits = digits, format = "g")
+    m$nominal_level <- formatC(m$nominal_level, digits = 2,      format = "f")
+    print(m, row.names = FALSE)
+    # if (length(x$calibration_deviation)) {
+    #     cat("\nCalibration deviation (empirical - nominal):\n")
+    #     for (nm in names(x$calibration_deviation))
+    #         cat(sprintf("  %-3s : %+7.3f\n", nm,
+    #                     x$calibration_deviation[[nm]]))
+    # }
+    invisible(x)
+}
+
+
 #' Out-of-sample forecasts from a DGTF fit
 #'
 #' \eqn{k}-step-ahead posterior predictive forecasts. Can also score
