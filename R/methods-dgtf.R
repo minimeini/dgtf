@@ -112,10 +112,7 @@ coef.dgtf_fit <- function(object, ...) {
 #' @export
 vcov.dgtf_fit <- function(object, ...) {
     d <- .dgtf_static_draws(object)
-    alpha <- 1 - level
-    t(apply(d$draws_matrix, 2, stats::quantile,
-        probs = c(alpha / 2, 1 - alpha / 2)
-    ))
+    stats::cov(d$draws_matrix)
 }
 
 #' @export
@@ -159,69 +156,242 @@ logLik.dgtf_fit <- function(object, ...) {
 }
 
 #' @export
+#' @export
 summary.dgtf_fit <- function(object, ...) {
+    f       <- object$fit
+    method  <- object$method
+    engine  <- object$control$method
+    nsample <- object$control$nsample %||% object$control$n_sample
+
+    # Static-parameter draws (handles HVA / MCMC orientation differences).
+    d <- tryCatch(.dgtf_static_draws(object), error = function(e) NULL)
+
+    # Per-parameter table.
+    param_table <- NULL
+    if (!is.null(d) && !is.null(d$draws_matrix) && ncol(d$draws_matrix) > 0L) {
+        dm <- d$draws_matrix
+        param_table <- data.frame(
+            parameter = colnames(dm),
+            mean      = apply(dm, 2, mean),
+            median    = apply(dm, 2, stats::median),
+            sd        = apply(dm, 2, stats::sd),
+            q025      = apply(dm, 2, stats::quantile, probs = 0.025),
+            q975      = apply(dm, 2, stats::quantile, probs = 0.975),
+            ess_bulk  = NA_real_,
+            ess_tail  = NA_real_,
+            rhat      = NA_real_,
+            row.names = NULL,
+            stringsAsFactors = FALSE
+        )
+        if (requireNamespace("posterior", quietly = TRUE)) {
+            ds <- tryCatch(
+                posterior::summarise_draws(
+                    posterior::as_draws_matrix(dm),
+                    "ess_bulk", "ess_tail", "rhat"),
+                error = function(e) NULL)
+            if (!is.null(ds)) {
+                idx <- match(param_table$parameter, ds$variable)
+                param_table$ess_bulk <- ds$ess_bulk[idx]
+                param_table$ess_tail <- ds$ess_tail[idx]
+                param_table$rhat     <- ds$rhat[idx]
+            }
+        }
+    }
+
+    # Latent-state summary (post-link R_t median band).
+    state_summary <- NULL
+    if (!is.null(f$psi) && is.matrix(f$psi) && ncol(f$psi) >= 2L) {
+        med <- as.numeric(f$psi[, 2])
+        state_summary <- list(
+            median_range = range(med, na.rm = TRUE),
+            iqr_median   = stats::IQR(med, na.rm = TRUE)
+        )
+    }
+
+    # Model components (best-effort; tolerant of partial specs).
+    m <- object$model
+    model_components <- list(
+        obs         = m$obs$type      %||% NA_character_,
+        link        = m$link$type     %||% NA_character_,
+        sys         = m$sys$type      %||% NA_character_,
+        gain        = m$gain$type     %||% NA_character_,
+        lag         = m$lag$type      %||% NA_character_,
+        lag_window  = m$lag$window    %||% NA_integer_,
+        seasonality = if (!is.null(m$seasonality))
+                          sprintf("period %s (in_state = %s)",
+                                  m$seasonality$period %||% NA,
+                                  isTRUE(m$seasonality$in_state))
+                      else NA_character_,
+        zi          = isTRUE(m$zi$enabled %||% FALSE)
+    )
+
+    # HVA-only convergence block (uses fit$marglik trace).
+    convergence <- NULL
+    if (identical(method, "hva") && !is.null(f$marglik)) {
+        ml <- as.numeric(f$marglik)
+        last_delta <- if (length(ml) >= 2L) abs(diff(utils::tail(ml, 2L))) else NA_real_
+        # Plateau: first index where 50-iter rolling SD < 1% * |median(ml)|.
+        plateau_iter <- NA_integer_
+        if (length(ml) >= 100L) {
+            win <- 50L
+            thr <- 0.01 * abs(stats::median(ml))
+            sds <- vapply(seq_len(length(ml) - win + 1L),
+                          function(i) stats::sd(ml[i:(i + win - 1L)]),
+                          numeric(1))
+            hit <- which(sds < thr)
+            if (length(hit)) plateau_iter <- hit[1L]
+        }
+        convergence <- list(
+            final_log_marglik = utils::tail(ml, 1L),
+            last_delta        = last_delta,
+            iterations        = length(ml),
+            plateau_iter      = plateau_iter
+        )
+    }
+
+    # MCMC-only HMC block (uses fit$hmc).
+    hmc <- NULL
+    if (identical(method, "mcmc") && !is.null(f$hmc)) {
+        h  <- f$hmc
+        ed <- h$diagnostics$energy_diff
+        gn <- h$diagnostics$grad_norm
+        hmc <- list(
+            acceptance      = f$hmc_accept %||% h$acceptance_rate,
+            leapfrog_step   = h$leapfrog_step_size,
+            n_leapfrog      = h$n_leapfrog,
+            energy_diff_max = if (length(ed)) max(abs(ed), na.rm = TRUE)         else NA_real_,
+            energy_diff_q99 = if (length(ed)) stats::quantile(abs(ed), 0.99,
+                                                              na.rm = TRUE)      else NA_real_,
+            grad_norm_mean  = if (length(gn)) mean(gn, na.rm = TRUE)             else NA_real_,
+            mass_diag       = h$mass_diag
+        )
+    }
+
+    # MCMC-only disturbance MH block (uses fit$wt_accept).
+    disturbance_mh <- NULL
+    if (identical(method, "mcmc") && !is.null(f$wt_accept)) {
+        wa <- as.numeric(f$wt_accept)
+        disturbance_mh <- list(
+            mean  = mean(wa, na.rm = TRUE),
+            range = range(wa, na.rm = TRUE),
+            n_low = sum(wa < 0.1, na.rm = TRUE)
+        )
+    }
+
     out <- list(
-  method            = "hva" | "mcmc" | ...,
-  engine            = control$method,        # "vb" | "mcmc"
-  n                 = length(y),
-  nsample           = nsample,
-  elapsed           = elapsed,
-  model_components  = list(obs = "...", link = "...", sys = "...",
-                           gain = "...", lag = "...", lag_window = ...,
-                           seasonality = "period N (in_state = T/F)",
-                           zi = TRUE/FALSE),
-  param_table       = data.frame(parameter, mean, median, sd, q025, q975,
-                                 ess_bulk, ess_tail, rhat),
-  state_summary     = list(
-    median_range = c(min, max),     # of post-gain R_t = h(psi)
-    iqr_median   = ...
-  ),
-  convergence       = NULL | list(   # HVA only
-    final_log_marglik   = ...,
-    last_delta          = ...,
-    iterations          = niter,
-    plateau_iter        = first iter where rolling SD of marglik drops below
-                          a heuristic threshold; NA if not detected
-  ),
-  hmc               = NULL | list(   # MCMC only
-    acceptance        = hmc_accept,
-    leapfrog_step     = hmc$leapfrog_step_size,
-    n_leapfrog        = hmc$n_leapfrog,
-    energy_diff_max   = max(abs(diagnostics$energy_diff)),
-    energy_diff_q99   = quantile(abs(diagnostics$energy_diff), 0.99),
-    grad_norm_mean    = mean(diagnostics$grad_norm)
-  ),
-  disturbance_mh    = NULL | list(   # MCMC only
-    mean      = mean(wt_accept),
-    range     = range(wt_accept),
-    n_low     = sum(wt_accept < 0.1)
-  ),
-  ppc               = attr(object, "ppc")    # NULL unless attached
-)
-    class(out) <- "summary.dgtf_fit"
+        method           = method,
+        engine           = engine,
+        n                = length(object$y),
+        nsample          = nsample,
+        elapsed          = object$elapsed,
+        model_components = model_components,
+        param_table      = param_table,
+        state_summary    = state_summary,
+        convergence      = convergence,
+        hmc              = hmc,
+        disturbance_mh   = disturbance_mh,
+        ppc              = attr(object, "ppc"),
+        error            = object$error
+    )
+    class(out) <- c("summary.dgtf_fit", "list")
     out
 }
 
 #' @export
-print.summary.dgtf_fit <- function(x, ...) {
-    cat(sprintf("<dgtf_fit summary>\n  method = %s, n = %d, elapsed = %.2fs\n\n",
-                x$method, x$n, as.numeric(x$elapsed)))
-    if (!is.null(x$coef)) {
-        cat("Static parameter point estimates:\n")
-        print(x$coef)
-        cat("\n")
+#' @export
+print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
+    cat(sprintf("DGTF model fit (method = %s, engine = %s)\n",
+                toupper(x$method  %||% "?"),
+                toupper(x$engine  %||% "?")))
+    cat(strrep("-", 50), "\n", sep = "")
+
+    mc <- x$model_components
+    if (!is.null(mc)) {
+        if (!is.na(mc$obs))
+            cat(sprintf("Observation : %s + link %s\n", mc$obs, mc$link))
+        if (!is.na(mc$sys))
+            cat(sprintf("System      : %s  (gain = %s, lag = %s%s)\n",
+                        mc$sys, mc$gain, mc$lag,
+                        if (!is.na(mc$lag_window))
+                            sprintf(" [window = %d]", as.integer(mc$lag_window))
+                        else ""))
+        if (!is.na(mc$seasonality))
+            cat(sprintf("Seasonality : %s\n", mc$seasonality))
+        if (isTRUE(mc$zi))
+            cat("Zero-infl.  : enabled\n")
     }
-    if (!is.null(x$ci)) {
-        cat("Posterior credible intervals:\n")
-        print(x$ci)
-        cat("\n")
+    cat(sprintf("Data        : n = %d observations\n", x$n))
+    if (!is.null(x$nsample))
+        cat(sprintf("Posterior   : %s draws\n",
+                    format(x$nsample, big.mark = ",")))
+    if (!is.null(x$elapsed))
+        cat(sprintf("Elapsed     : %.2f s\n", as.numeric(x$elapsed)))
+
+    if (!is.null(x$param_table) && nrow(x$param_table) > 0L) {
+        cat("\nStatic parameters\n")
+        pt <- x$param_table
+        for (nm in setdiff(names(pt), "parameter"))
+            pt[[nm]] <- formatC(pt[[nm]], digits = digits, format = "g")
+        print(pt, row.names = FALSE)
     }
+
+    if (!is.null(x$state_summary)) {
+        cat("\nLatent state psi (median band)\n")
+        cat(sprintf("  median range : [%s, %s]   IQR median : %s\n",
+                    formatC(x$state_summary$median_range[1], digits = digits, format = "g"),
+                    formatC(x$state_summary$median_range[2], digits = digits, format = "g"),
+                    formatC(x$state_summary$iqr_median,      digits = digits, format = "g")))
+    }
+
+    if (!is.null(x$convergence)) {
+        c0 <- x$convergence
+        cat("\nConvergence (HVA)\n")
+        cat(sprintf("  final log p(y | gamma) : %s\n",
+                    formatC(c0$final_log_marglik, digits = digits, format = "g")))
+        cat(sprintf("  last delta             : %s\n",
+                    formatC(c0$last_delta,        digits = digits, format = "g")))
+        cat(sprintf("  iterations             : %d\n", c0$iterations))
+        cat(sprintf("  plateau detected       : %s\n",
+                    if (is.na(c0$plateau_iter)) "no"
+                    else sprintf("iter ~ %d", c0$plateau_iter)))
+    }
+
+    if (!is.null(x$hmc)) {
+        h <- x$hmc
+        cat("\nHMC sampler\n")
+        cat(sprintf("  acceptance rate      : %.3f\n", as.numeric(h$acceptance)))
+        cat(sprintf("  leapfrog step        : %.4g\n", as.numeric(h$leapfrog_step)))
+        cat(sprintf("  leapfrog steps       : %d\n",   as.integer(h$n_leapfrog)))
+        cat(sprintf("  max |dH|             : %.4g\n", h$energy_diff_max))
+        cat(sprintf("  99%% |dH|             : %.4g\n", h$energy_diff_q99))
+        cat(sprintf("  mean ||grad log pi|| : %.4g\n", h$grad_norm_mean))
+    }
+
+    if (!is.null(x$disturbance_mh)) {
+        d <- x$disturbance_mh
+        cat("\nDisturbance MH\n")
+        cat(sprintf("  mean acceptance      : %.3f\n", d$mean))
+        cat(sprintf("  range acceptance     : [%.3f, %.3f]\n",
+                    d$range[1], d$range[2]))
+        cat(sprintf("  t with accept < 0.1  : %d\n", as.integer(d$n_low)))
+    }
+
+    if (!is.null(x$ppc) && inherits(x$ppc, "dgtf_ppc")) {
+        cat("\nPosterior predictive check (attached)\n")
+        print(x$ppc)
+    } else {
+        cat("\n(no posterior predictive check attached - call ",
+            "posterior_predict(fit) and assign with ",
+            "`attr(fit, \"ppc\") <- ppc`)\n", sep = "")
+    }
+
     if (!is.null(x$error)) {
         if (!is.null(x$error$fitted))
-            cat("In-sample error:    ", format(x$error$fitted), "\n")
+            cat("In-sample error    :", format(x$error$fitted), "\n")
         if (!is.null(x$error$forecast))
             cat("Out-of-sample error:", format(x$error$forecast), "\n")
     }
+
     invisible(x)
 }
 

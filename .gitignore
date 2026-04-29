@@ -22,6 +22,7 @@ R/RcppExports.R
 docs/
 inst/doc/
 *.tar.gz
+man/
 
 # User scratch
 sim_*
