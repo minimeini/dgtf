@@ -177,25 +177,25 @@ summary.dgtf_fit <- function(object, ...) {
             sd        = apply(dm, 2, stats::sd),
             q025      = apply(dm, 2, stats::quantile, probs = 0.025),
             q975      = apply(dm, 2, stats::quantile, probs = 0.975),
-            ess_bulk  = NA_real_,
-            ess_tail  = NA_real_,
-            rhat      = NA_real_,
+            # ess_bulk  = NA_real_,
+            # ess_tail  = NA_real_,
+            # rhat      = NA_real_,
             row.names = NULL,
             stringsAsFactors = FALSE
         )
-        if (requireNamespace("posterior", quietly = TRUE)) {
-            ds <- tryCatch(
-                posterior::summarise_draws(
-                    posterior::as_draws_matrix(dm),
-                    "ess_bulk", "ess_tail", "rhat"),
-                error = function(e) NULL)
-            if (!is.null(ds)) {
-                idx <- match(param_table$parameter, ds$variable)
-                param_table$ess_bulk <- ds$ess_bulk[idx]
-                param_table$ess_tail <- ds$ess_tail[idx]
-                param_table$rhat     <- ds$rhat[idx]
-            }
-        }
+        # if (requireNamespace("posterior", quietly = TRUE)) {
+        #     ds <- tryCatch(
+        #         posterior::summarise_draws(
+        #             posterior::as_draws_matrix(dm),
+        #             "ess_bulk", "ess_tail", "rhat"),
+        #         error = function(e) NULL)
+        #     if (!is.null(ds)) {
+        #         idx <- match(param_table$parameter, ds$variable)
+        #         param_table$ess_bulk <- ds$ess_bulk[idx]
+        #         param_table$ess_tail <- ds$ess_tail[idx]
+        #         param_table$rhat     <- ds$rhat[idx]
+        #     }
+        # }
     }
 
     # Latent-state summary (post-link R_t median band).
@@ -287,7 +287,7 @@ summary.dgtf_fit <- function(object, ...) {
         model_components = model_components,
         param_table      = param_table,
         state_summary    = state_summary,
-        convergence      = convergence,
+        # convergence      = convergence,
         hmc              = hmc,
         disturbance_mh   = disturbance_mh,
         ppc              = attr(object, "ppc"),
@@ -343,18 +343,18 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
                     formatC(x$state_summary$iqr_median,      digits = digits, format = "g")))
     }
 
-    if (!is.null(x$convergence)) {
-        c0 <- x$convergence
-        cat("\nConvergence (HVA)\n")
-        cat(sprintf("  final log p(y | gamma) : %s\n",
-                    formatC(c0$final_log_marglik, digits = digits, format = "g")))
-        cat(sprintf("  last delta             : %s\n",
-                    formatC(c0$last_delta,        digits = digits, format = "g")))
-        cat(sprintf("  iterations             : %d\n", c0$iterations))
-        cat(sprintf("  plateau detected       : %s\n",
-                    if (is.na(c0$plateau_iter)) "no"
-                    else sprintf("iter ~ %d", c0$plateau_iter)))
-    }
+    # if (!is.null(x$convergence)) {
+    #     c0 <- x$convergence
+    #     cat("\nConvergence (HVA)\n")
+    #     cat(sprintf("  final log p(y | gamma) : %s\n",
+    #                 formatC(c0$final_log_marglik, digits = digits, format = "g")))
+    #     cat(sprintf("  last delta             : %s\n",
+    #                 formatC(c0$last_delta,        digits = digits, format = "g")))
+    #     cat(sprintf("  iterations             : %d\n", c0$iterations))
+    #     cat(sprintf("  plateau detected       : %s\n",
+    #                 if (is.na(c0$plateau_iter)) "no"
+    #                 else sprintf("iter ~ %d", c0$plateau_iter)))
+    # }
 
     if (!is.null(x$hmc)) {
         h <- x$hmc

@@ -97,27 +97,29 @@ print.dgtf_ppc <- function(x, digits = 3L, ...) {
 
 
 #' @export
+#' @export
 summary.dgtf_ppc <- function(object, ...) {
     lvl <- object$level %||% 0.95
 
     rows <- list(
-        list(target = "y",  metric = "chi-square",     value = object$chi),
-        list(target = "y",  metric = "CRPS",           value = object$crps),
-        list(target = "y",  metric = "coverage",       value = object$coverage_yhat),
-        list(target = "y",  metric = "width",          value = object$width_yhat),
-        list(target = "y",  metric = "interval_score", value = object$interval_score_yhat),
-        list(target = "Rt", metric = "MAE",            value = object$mae_Rt),
-        list(target = "Rt", metric = "RMSE",           value = object$rmse_Rt),
-        list(target = "Rt", metric = "coverage",       value = object$coverage_Rt),
-        list(target = "Rt", metric = "width",          value = object$width_Rt),
-        list(target = "Rt", metric = "interval_score", value = object$interval_score_Rt)
+        list(target = "y",  metric = "chi-square",     value = object$chi,                  level_applies = FALSE),
+        list(target = "y",  metric = "CRPS",           value = object$crps,                 level_applies = FALSE),
+        list(target = "y",  metric = "coverage",       value = object$coverage_yhat,        level_applies = TRUE),
+        list(target = "y",  metric = "width",          value = object$width_yhat,           level_applies = FALSE),
+        list(target = "y",  metric = "interval_score", value = object$interval_score_yhat,  level_applies = FALSE),
+        list(target = "Rt", metric = "MAE",            value = object$mae_Rt,               level_applies = FALSE),
+        list(target = "Rt", metric = "RMSE",           value = object$rmse_Rt,              level_applies = FALSE),
+        list(target = "Rt", metric = "coverage",       value = object$coverage_Rt,          level_applies = TRUE),
+        list(target = "Rt", metric = "width",          value = object$width_Rt,             level_applies = FALSE),
+        list(target = "Rt", metric = "interval_score", value = object$interval_score_Rt,   level_applies = FALSE)
     )
     rows <- Filter(function(r) !is.null(r$value) && is.finite(r$value), rows)
+    nominal <- vapply(rows, function(r) if (r$level_applies) lvl else NA_real_, numeric(1))
     metrics <- data.frame(
         target        = vapply(rows, `[[`, character(1), "target"),
         metric        = vapply(rows, `[[`, character(1), "metric"),
         value         = vapply(rows, `[[`, numeric(1),   "value"),
-        nominal_level = lvl,
+        nominal_level = nominal,
         row.names     = NULL,
         stringsAsFactors = FALSE
     )
@@ -137,15 +139,15 @@ summary.dgtf_ppc <- function(object, ...) {
     out
 }
 
-
 #' @export
 print.summary.dgtf_ppc <- function(x, digits = 3L, ...) {
     cat(sprintf("<dgtf posterior predictive summary, level = %.0f%%>\n",
                 100 * x$level))
     cat("\nScalar metrics:\n")
     m <- x$metrics
-    m$value         <- formatC(m$value,         digits = digits, format = "g")
-    m$nominal_level <- formatC(m$nominal_level, digits = 2,      format = "f")
+    m$value         <- formatC(m$value, digits = digits, format = "g")
+    m$nominal_level <- ifelse(is.na(m$nominal_level), "",
+                              formatC(m$nominal_level, digits = 2, format = "f"))
     print(m, row.names = FALSE)
     # if (length(x$calibration_deviation)) {
     #     cat("\nCalibration deviation (empirical - nominal):\n")
