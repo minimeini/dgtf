@@ -394,38 +394,3 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
 
     invisible(x)
 }
-
-#' @export
-plot.dgtf_fit <- function(x, ...) {
-    lam <- x$fit$lambda
-    if (is.null(lam))
-        stop("Nothing to plot: `lambda` missing from this fit.",
-             call. = FALSE)
-    if (is.matrix(lam)) {
-        # Try to infer (lower, median, upper) layout
-        if (nrow(lam) == 3L) {
-            lo <- lam[1L, ]; me <- lam[2L, ]; hi <- lam[3L, ]
-        } else if (ncol(lam) == 3L) {
-            lo <- lam[, 1L]; me <- lam[, 2L]; hi <- lam[, 3L]
-        } else {
-            me <- apply(lam, 2L, stats::median)
-            lo <- apply(lam, 2L, stats::quantile, probs = 0.025)
-            hi <- apply(lam, 2L, stats::quantile, probs = 0.975)
-        }
-    } else {
-        me <- as.numeric(lam); lo <- NULL; hi <- NULL
-    }
-    t  <- seq_along(me)
-    yl <- range(c(x$y, lo, me, hi), na.rm = TRUE)
-    plot(t, x$y, type = "h",
-         xlab = "time", ylab = "y / intensity", ylim = yl,
-         col  = "grey50",
-         main = sprintf("dgtf fit (%s)", x$method))
-    if (!is.null(lo)) {
-        graphics::polygon(c(t, rev(t)), c(lo, rev(hi)),
-                          col = grDevices::rgb(0.2, 0.4, 0.8, 0.3),
-                          border = NA)
-    }
-    graphics::lines(t, me, col = "blue", lwd = 2)
-    invisible(NULL)
-}

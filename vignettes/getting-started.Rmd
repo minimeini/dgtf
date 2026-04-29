@@ -136,14 +136,15 @@ fit <- dgtf(
 # 4. Inspect
 
 ```{r}
-plot_ts(log1p(exp(fit$fit$psi)), ts_true = log1p(exp(c(sim$psi[1:190]))), ylab = "Rt")
+plot(fit, what = "Rt", truth = log1p(exp(sim$psi[1:190])))
+plot(fit, what = "yhat")
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
 ppc <- posterior_predict(fit, nrep = 100,
                          Rt = log1p(exp(c(sim$psi[1:190]))))   # truth in a sim study
-plot_ts(ppc$yhat, ts_true = c(sim$y[1:190]), ylab = "y", main = "Posterior predictive check")
+plot(ppc, what = "yhat", truth = c(sim$y[1:190]), main = "Posterior predictive check")
 ```
 
 
@@ -155,11 +156,15 @@ control changes:
 ```{r switch-method, eval = FALSE}
 fit_mcmc <- dgtf(sim$y[1:190], mod, prior,
                  method  = "mcmc",
-                 control = mcmc_control(iter = 10000, warmup = 2000, thin = 2))
+                 control = mcmc_control(iter = 1000, warmup = 2000, thin = 2))
 ```
 
 ```{r}
-plot_ts(log1p(exp(fit_mcmc$fit$psi)), ts_true = log1p(exp(c(sim$psi[1:190]))), ylab = "Rt")
+dgtf_compare_plot(
+    list(HVA = fit, MCMC = fit_mcmc,
+         True = log1p(exp(sim$psi[1:190]))),
+    what = "Rt"
+)
 ```
 
 # 6. Swap a component to change the model
