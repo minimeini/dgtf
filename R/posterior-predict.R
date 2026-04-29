@@ -15,9 +15,24 @@
 #'   comparison.
 #' @param ... Unused.
 #'
-#' @return A list as returned by [`dgtf_posterior_predictive()`]:
-#'   posterior predictive intensity samples, replicate `y` draws, and
-#'   summary statistics.
+#' @param level Credible-interval level for coverage / width / interval-score
+#'   reporting (default `0.95`).
+#'
+#' @return An object of class `dgtf_ppc` (a list). Always present:
+#'   * `chi` — averaged chi-square discrepancy of `y`
+#'   * `Rt` — `(ntime + 1) x 3` matrix of `R_t` posterior quantiles at
+#'     `(alpha/2, 0.5, 1 - alpha/2)` with `alpha = 1 - level`
+#'   * `width_Rt` — mean width of the `R_t` credible bands
+#'   * `level` — the credible-interval level used
+#'
+#'   When `nrep > 0`:
+#'   * `crps` — averaged continuous ranked probability score for `y`
+#'   * `yhat` — `(ntime + 1) x 3` quantile matrix of posterior-predictive `y`
+#'   * `coverage_yhat`, `width_yhat`, `interval_score_yhat` — Winkler interval
+#'     score and its components for `y`
+#'
+#'   When a reference `Rt` is supplied (simulation studies):
+#'   * `mae_Rt`, `rmse_Rt`, `coverage_Rt`, `interval_score_Rt`
 #'
 #' @export
 #' @examples
@@ -30,16 +45,54 @@ posterior_predict <- function(object, ...) UseMethod("posterior_predict")
 #' @rdname posterior_predict
 #' @export
 posterior_predict.dgtf_fit <- function(object,
-                                        nrep = 100L,
-                                        Rt   = NULL,
-                                        ...) {
-    dgtf_posterior_predictive(
+                                       nrep = 100L,
+                                       Rt = NULL,
+                                       level = 0.95,
+                                       ...) {
+    if (!is.numeric(level) || length(level) != 1L ||
+        level <= 0 || level >= 1) {
+        stop("`level` must be a single number in (0, 1).", call. = FALSE)
+    }
+
+    out <- dgtf_posterior_predictive(
         output     = object$fit,
         model_opts = as_settings(object$model),
         y          = as.numeric(object$y),
         nrep       = as.integer(nrep),
-        Rt         = if (is.null(Rt)) NULL else as.numeric(Rt)
+        Rt         = if (is.null(Rt)) NULL else as.numeric(Rt),
+        level      = level
     )
+    class(out) <- c("dgtf_ppc", "list")
+    out
+}
+
+
+#' @export
+print.dgtf_ppc <- function(x, digits = 3L, ...) {
+    lvl <- x$level %||% 0.95
+    cat(sprintf("<dgtf posterior predictive check, level = %.0f%%>\n",
+                100 * lvl))
+    rows <- list(
+        c("chi-sq discrepancy",   x$chi),
+        c("CRPS (y)",              x$crps),
+        c("coverage (y)",          x$coverage_yhat),
+        c("width (y)",             x$width_yhat),
+        c("interval score (y)",    x$interval_score_yhat),
+        c("MAE (R_t)",             x$mae_Rt),
+        c("RMSE (R_t)",            x$rmse_Rt),
+        c("coverage (R_t)",        x$coverage_Rt),
+        c("width (R_t)",           x$width_Rt),
+        c("interval score (R_t)",  x$interval_score_Rt)
+    )
+    rows <- Filter(function(r) !is.null(r[[2]]), rows)
+    tab <- data.frame(
+        metric = vapply(rows, `[[`, character(1), 1L),
+        value  = vapply(rows, function(r)
+            formatC(as.numeric(r[[2]]), digits = digits, format = "f"),
+            character(1))
+    )
+    print(tab, row.names = FALSE)
+    invisible(x)
 }
 
 

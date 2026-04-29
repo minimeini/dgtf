@@ -23,15 +23,16 @@ as_draws <- function(x, ...) UseMethod("as_draws")
 #' @rdname as_draws
 #' @export
 as_draws.dgtf_fit <- function(x, ...) {
-    s <- x$fit$samples %||% x$fit$static_samples
-    if (is.null(s))
-        stop("This fit has no posterior samples (try method = \"mcmc\" or vb).",
-             call. = FALSE)
-    if (requireNamespace("posterior", quietly = TRUE)) {
-        if (is.matrix(s)) return(posterior::as_draws_matrix(s))
-        return(posterior::as_draws_array(s))
+    d <- .dgtf_static_draws(x)
+    if (is.null(d$draws_matrix) || ncol(d$draws_matrix) == 0L) {
+        stop("This fit has no posterior samples for static parameters.",
+            call. = FALSE
+        )
     }
-    s
+    if (requireNamespace("posterior", quietly = TRUE)) {
+        return(posterior::as_draws_matrix(d$draws_matrix))
+    }
+    d$draws_matrix
 }
 
 #' Pointwise log-likelihood
@@ -55,8 +56,7 @@ log_lik.dgtf_fit <- function(object, ...) {
 
 #' Latent-state posterior draws
 #'
-#' Convenience extractor for `psi`/`Theta` posterior samples produced
-#' by the SMC / MCMC / VB engines. Returns the array as-is.
+#' Returns an `n x nsample` matrix for `psi`, or a 3-D array (`nP x (n+1) x nsample`) for `Theta`.
 #'
 #' @param object A `dgtf_fit`.
 #' @param what One of `"psi"` (the scalar `Rt`-driver) or `"Theta"`
@@ -64,9 +64,14 @@ log_lik.dgtf_fit <- function(object, ...) {
 #' @export
 extract_state_draws <- function(object, what = c("psi", "Theta")) {
     what <- match.arg(what)
-    out <- object$fit[[what]] %||% object$fit$state[[what]]
-    if (is.null(out))
+    out <- switch(what,
+        psi   = object$fit$psi_stored, # n x nsample
+        Theta = object$fit$Theta_stored %||% object$fit$Theta
+    )
+    if (is.null(out)) {
         stop(sprintf("State component `%s` not found in fit output.", what),
-             call. = FALSE)
+            call. = FALSE
+        )
+    }
     out
 }

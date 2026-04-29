@@ -41,6 +41,11 @@ dgtf_diagnostics <- function(object) {
         }
     }
 
+    ppc <- attr(object, "ppc") %||% NULL
+    if (!is.null(ppc) && inherits(ppc, "dgtf_ppc")) {
+        out$ppc <- ppc
+    }
+
     structure(out, class = "dgtf_diagnostics")
 }
 
@@ -61,6 +66,11 @@ print.dgtf_diagnostics <- function(x, ...) {
             cat("  fitted error  :", format(x$error$fitted), "\n")
         if (!is.null(x$error$forecast))
             cat("  forecast error:", format(x$error$forecast), "\n")
+    }
+
+    if (!is.null(x$ppc)) {
+        cat("  posterior predictive check:\n")
+        print(x$ppc)
     }
     invisible(x)
 }

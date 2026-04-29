@@ -4,6 +4,55 @@
 ## depending on the method. The methods below extract what they need
 ## defensively.
 
+
+# Returns a list:
+#   inferred     : character — names of static params with posterior draws
+#   draws        : named list — each element is `nsample x p_dim` with
+#                  column names like "W", "seas[1]", "seas[2]", "rho", ...
+#   draws_matrix : `nsample x total_dim` matrix (concatenation of the above)
+#   nsample      : integer
+.dgtf_static_draws <- function(object) {
+    f <- object$fit
+    method <- object$method
+
+    # 1. Unified `inferred` regardless of engine.
+    inferred <- f$inferred
+    if (is.null(inferred)) {
+        flags <- grep("^infer_", names(f), value = TRUE)
+        inferred <- sub(
+            "^infer_", "",
+            flags[vapply(f[flags], isTRUE, logical(1))]
+        )
+    }
+    inferred <- inferred[inferred %in% names(f)] # only keep those with draws
+
+    # 2. Determine canonical nsample from the control object (most reliable
+    #    signal that survives both methods).
+    nsample <- object$control$nsample %||% object$control$n_sample
+
+    # 3. Normalize each draw matrix to nsample x p_dim.
+    draws <- lapply(inferred, function(nm) {
+        x <- f[[nm]]
+        if (is.null(dim(x))) x <- matrix(x, ncol = 1)
+        if (nrow(x) != nsample && ncol(x) == nsample) x <- t(x)
+        if (ncol(x) == 1L) {
+            colnames(x) <- nm
+        } else {
+            colnames(x) <- paste0(nm, "[", seq_len(ncol(x)), "]")
+        }
+        x
+    })
+    names(draws) <- inferred
+
+    list(
+        inferred = inferred,
+        draws = draws,
+        draws_matrix = do.call(cbind, draws),
+        nsample = nsample
+    )
+}
+
+
 #' @export
 print.dgtf_fit <- function(x, ...) {
     cat("<dgtf_fit>\n")
@@ -56,39 +105,26 @@ residuals.dgtf_fit <- function(object,
 
 #' @export
 coef.dgtf_fit <- function(object, ...) {
-    s <- object$fit$static
-    if (is.null(s)) {
-        # Fall back to whatever scalar parameters live at the top level
-        out <- vapply(object$fit, function(x)
-            if (is.numeric(x) && length(x) == 1L) x else NA_real_,
-            numeric(1))
-        return(out[!is.na(out)])
-    }
-    if (is.list(s))
-        return(unlist(lapply(s, function(z)
-            if (is.numeric(z) && length(z) == 1L) z
-            else if (is.numeric(z)) stats::median(z)
-            else NA_real_)))
-    s
+    d <- .dgtf_static_draws(object)
+    apply(d$draws_matrix, 2, stats::median)
 }
 
 #' @export
 vcov.dgtf_fit <- function(object, ...) {
-    s <- object$fit$static_vcov
-    if (is.null(s))
-        stop("Variance-covariance matrix not available for this method.",
-             call. = FALSE)
-    s
+    d <- .dgtf_static_draws(object)
+    alpha <- 1 - level
+    t(apply(d$draws_matrix, 2, stats::quantile,
+        probs = c(alpha / 2, 1 - alpha / 2)
+    ))
 }
 
 #' @export
 confint.dgtf_fit <- function(object, parm = NULL, level = 0.95, ...) {
-    s <- object$fit$static_quantiles
-    if (is.null(s))
-        stop("Posterior quantiles for static parameters not available.",
-             call. = FALSE)
-    if (is.null(parm)) parm <- rownames(s) %||% seq_len(nrow(s))
-    s[parm, , drop = FALSE]
+    d <- .dgtf_static_draws(object)
+    alpha <- 1 - level
+    t(apply(d$draws_matrix, 2, stats::quantile,
+        probs = c(alpha / 2, 1 - alpha / 2)
+    ))
 }
 
 #' @export
@@ -125,13 +161,43 @@ logLik.dgtf_fit <- function(object, ...) {
 #' @export
 summary.dgtf_fit <- function(object, ...) {
     out <- list(
-        method  = object$method,
-        n       = length(object$y),
-        elapsed = object$elapsed,
-        coef    = tryCatch(coef(object), error = function(e) NULL),
-        ci      = tryCatch(confint(object), error = function(e) NULL),
-        error   = object$error
-    )
+  method            = "hva" | "mcmc" | ...,
+  engine            = control$method,        # "vb" | "mcmc"
+  n                 = length(y),
+  nsample           = nsample,
+  elapsed           = elapsed,
+  model_components  = list(obs = "...", link = "...", sys = "...",
+                           gain = "...", lag = "...", lag_window = ...,
+                           seasonality = "period N (in_state = T/F)",
+                           zi = TRUE/FALSE),
+  param_table       = data.frame(parameter, mean, median, sd, q025, q975,
+                                 ess_bulk, ess_tail, rhat),
+  state_summary     = list(
+    median_range = c(min, max),     # of post-gain R_t = h(psi)
+    iqr_median   = ...
+  ),
+  convergence       = NULL | list(   # HVA only
+    final_log_marglik   = ...,
+    last_delta          = ...,
+    iterations          = niter,
+    plateau_iter        = first iter where rolling SD of marglik drops below
+                          a heuristic threshold; NA if not detected
+  ),
+  hmc               = NULL | list(   # MCMC only
+    acceptance        = hmc_accept,
+    leapfrog_step     = hmc$leapfrog_step_size,
+    n_leapfrog        = hmc$n_leapfrog,
+    energy_diff_max   = max(abs(diagnostics$energy_diff)),
+    energy_diff_q99   = quantile(abs(diagnostics$energy_diff), 0.99),
+    grad_norm_mean    = mean(diagnostics$grad_norm)
+  ),
+  disturbance_mh    = NULL | list(   # MCMC only
+    mean      = mean(wt_accept),
+    range     = range(wt_accept),
+    n_low     = sum(wt_accept < 0.1)
+  ),
+  ppc               = attr(object, "ppc")    # NULL unless attached
+)
     class(out) <- "summary.dgtf_fit"
     out
 }

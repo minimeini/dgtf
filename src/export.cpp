@@ -379,7 +379,9 @@ Rcpp::List dgtf_posterior_predictive(
     const Rcpp::List &model_opts, 
     const arma::vec &y, 
     const unsigned int &nrep = 0,
-    const Rcpp::Nullable<Rcpp::NumericVector> &Rt = R_NilValue)
+    const Rcpp::Nullable<Rcpp::NumericVector> &Rt = R_NilValue,
+    const double &level = 0.95
+)
 {
     std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
 
@@ -604,7 +606,8 @@ Rcpp::List dgtf_posterior_predictive(
     Rcpp::List output2;
     output2["chi"] = arma::mean(chi_sqr);
 
-    arma::vec prob = {0.025, 0.5, 0.975};
+    const double alpha = 1.0 - level;
+    arma::vec prob = {alpha / 2.0, 0.5, 1.0 - alpha / 2.0};
     if (nrep > 0)
     {
         arma::cube ytmp = yhat.reshape(ntime + 1, nsample * nrep, 1);
@@ -615,6 +618,19 @@ Rcpp::List dgtf_posterior_predictive(
         {
             arma::mat yqt = arma::quantile(yhat2, prob, 1);
             output2["yhat"] = Rcpp::wrap(yqt);
+
+            // Drop the t=0 initial row to match how `chi` and the time loop are averaged.
+            arma::vec y_eval = y.subvec(1, ntime);
+            arma::vec lo_y = yqt.col(0).subvec(1, ntime);
+            arma::vec hi_y = yqt.col(2).subvec(1, ntime);
+
+            arma::uvec yhat_mask = (y_eval >= lo_y - EPS) % (y_eval <= hi_y + EPS);
+            output2["coverage_yhat"] = arma::mean(arma::conv_to<arma::vec>::from(yhat_mask));
+            output2["width_yhat"] = arma::mean(hi_y - lo_y);
+
+            // Winkler / Gneiting-Raftery interval score (proper scoring rule).
+            arma::vec is_score = (hi_y - lo_y) + (2.0 / alpha) * arma::clamp(lo_y - y_eval, 0.0, arma::datum::inf) + (2.0 / alpha) * arma::clamp(y_eval - hi_y, 0.0, arma::datum::inf);
+            output2["interval_score_yhat"] = arma::mean(is_score);
         }
         catch(const std::exception& e)
         {
@@ -626,12 +642,27 @@ Rcpp::List dgtf_posterior_predictive(
     arma::mat hpsi_qt = arma::quantile(hpsi_stored, prob, 1);
     output2["Rt"] = Rcpp::wrap(hpsi_qt);
 
+    // Always-available width on the latent intensity:
+    arma::vec lo_R = hpsi_qt.col(0).subvec(1, ntime);
+    arma::vec hi_R = hpsi_qt.col(2).subvec(1, ntime);
+    output2["width_Rt"] = arma::mean(hi_R - lo_R);
+
     if (!use_theta && Rt.isNotNull())
     {
+        arma::vec hpsi_eval = hpsi_true.subvec(1, ntime);
+
+        // Aggregate residual matrix the same way as the existing rmse/mae:
         output2["rmse_Rt"] = std::sqrt(arma::mean(arma::mean(arma::pow(hpsi_res, 2))));
         output2["mae_Rt"] = arma::mean(arma::mean(hpsi_res));
+
+        arma::uvec Rt_mask = (hpsi_eval >= lo_R - EPS) % (hpsi_eval <= hi_R + EPS);
+        output2["coverage_Rt"] = arma::mean(arma::conv_to<arma::vec>::from(Rt_mask));
+
+        arma::vec is_R = (hi_R - lo_R) + (2.0 / alpha) * arma::clamp(lo_R - hpsi_eval, 0.0, arma::datum::inf) + (2.0 / alpha) * arma::clamp(hpsi_eval - hi_R, 0.0, arma::datum::inf);
+        output2["interval_score_Rt"] = arma::mean(is_R);
     }
 
+    output2["level"] = level;
     return output2;
 }
 
