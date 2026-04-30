@@ -72,7 +72,7 @@ The "what to infer" decision follows a single rule: anything you give a
 prior is treated as unknown; anything you don't is fixed at the value
 you supplied to `dgtf_model()`.
 
-```{r infer}
+```{r prior}
 prior <- dgtf_prior(
   seasonality = normal(1, 1),
   W           = inv_gamma(1, 1),
@@ -80,12 +80,16 @@ prior <- dgtf_prior(
   lag         = list(par1 = normal(0, 1), par2 = inv_gamma(1, 1))
 )
 
+```
+
+```{r infer}
+
 fit <- dgtf(
-  y       = c(sim$y)[1:190],
+  y       = c(sim$y),
   model   = mod,
   prior   = prior,
   method  = "hva",
-  control = vb_control(iter = 1000, n_sample = 1000, n_particle = 100)
+  control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
 summary(fit)
 ```
@@ -94,15 +98,16 @@ summary(fit)
 # 4. Inspect
 
 ```{r}
-plot(fit, what = "Rt", truth = log1p(exp(sim$psi[1:190])))
+plot(fit, what = "Rt", truth = log1p(exp(sim$psi)))
 plot(fit, what = "W")
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
 ppc <- posterior_predict(fit, nrep = 100,
-                         Rt = log1p(exp(c(sim$psi[1:190]))))   # truth in a sim study
-plot(ppc, what = "yhat", truth = c(sim$y[1:190]), main = "Posterior predictive check")
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+summary(ppc)
+plot(ppc, what = "yhat", truth = c(sim$y), main = "Posterior predictive check")
 ```
 
 
@@ -112,15 +117,30 @@ The `model` and `prior` objects are reusable across methods — only the
 control changes:
 
 ```{r switch-method, eval = FALSE}
-fit_mcmc <- dgtf(sim$y[1:190], mod, prior,
+fit_mcmc <- dgtf(sim$y, mod, prior,
                  method  = "mcmc",
-                 control = mcmc_control(iter = 1000, warmup = 2000, thin = 2))
+                 control = mcmc_control(iter = 5000, warmup = 2000, thin = 2))
+
+summary(fit_mcmc)
+```
+
+```{r}
+plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
+plot(fit_mcmc, what = "W")
+```
+
+```{r plot, fig.alt = "Posterior intensity vs simulated series"}
+# In-sample posterior predictive check
+ppc_mcmc <- posterior_predict(fit_mcmc, nrep = 100,
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+summary(ppc_mcmc)
+plot(ppc_mcmc, what = "yhat", truth = c(sim$y), main = "Posterior predictive check")
 ```
 
 ```{r}
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = log1p(exp(sim$psi[1:190]))),
+         True = log1p(exp(sim$psi))),
     what = "Rt"
 )
 
@@ -128,6 +148,12 @@ dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
          True = 0.01),
     what = "seas"
+)
+
+dgtf_compare_plot(
+    list(HVA = fit, MCMC = fit_mcmc,
+         True = 0.01),
+    what = "W"
 )
 ```
 

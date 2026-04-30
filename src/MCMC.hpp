@@ -393,348 +393,6 @@ namespace MCMC
             }
         } // func update_wt
 
-        static void update_W( // Checked. OK.
-            double &W_accept,
-            Model &model,
-            const arma::vec &wt,
-            const Dist &W_prior,
-            const double &mh_sd = 1.)
-        {
-            double W_old = model.derr.par1;
-            double res = arma::accu(arma::square(wt.tail(wt.n_elem - 2)));
-
-            // double bw_prior = prior_params.at(1); // eta_prior_val.at(1, 0)
-            std::map<std::string, AVAIL::Dist> dist_list = AVAIL::dist_list;
-
-            switch (dist_list[W_prior.name])
-            {
-            case AVAIL::Dist::gamma:
-            {
-                double aw_new = W_prior.par1;
-                double bw_prior = W_prior.par2;
-
-                double logp_old = aw_new * std::log(W_old) - bw_prior * W_old - 0.5 * res / W_old;
-                double W_new = std::exp(std::min(R::rnorm(std::log(W_old), mh_sd), UPBND));
-                double logp_new = aw_new * std::log(W_new) - bw_prior * W_new - 0.5 * res / W_new;
-                double logratio = std::min(0., logp_new - logp_old);
-                if (std::log(R::runif(0., 1.)) < logratio)
-                { // accept
-                    model.derr.par1 = W_new;
-                    W_accept += 1.;
-                }
-                break;
-            }
-            case AVAIL::Dist::invgamma:
-            {
-                double nSw_new = W_prior.par2 + res;                  // prior_params.at(1) = nSw
-                model.derr.par1 = 1. / R::rgamma(0.5 * W_prior.par1, 2. / nSw_new); // prior_params.at(0) = nw_new
-                // W_accept += 1.;
-                break;
-            }
-            default:
-            {
-                break;
-            }
-            }
-
-            #ifdef DGTF_DO_BOUND_CHECK
-            bound_check(model.derr.par1, "update: W", true, true);
-            #endif
-            return;
-        } // func update_W
-
-        static void update_seas( // flat prior
-            double &seas_accept,
-            Model &model,
-            const arma::vec &y, // (ntime + 1) x 1
-            const arma::vec &hpsi,
-            const Prior &seas_prior,
-            const double &min_var = 0.1)
-        {
-            std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
-            arma::vec seas_old = model.seas.val; // period x 1
-
-            arma::vec Vt_hat(y.n_elem, arma::fill::zeros); // (ntime + 1) x 1
-            arma::vec lambda(y.n_elem, arma::fill::zeros); // (ntime + 1) x 1
-            arma::vec eta(y.n_elem, arma::fill::zeros);    // (ntime + 1) x 1
-            arma::vec ft(y.n_elem, arma::fill::zeros); // (ntime + 1) x 1
-
-            double logp_old = 0.;
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                ft.at(t) = TransFunc::func_ft(t, y, ft, hpsi, model.dlag, model.ftrans);
-                // eta.at(t) = TransFunc::transfer_sliding(t, model.dlag.nL, y, model.dlag.Fphi, hpsi);
-                // double ft = eta.at(t);
-                eta.at(t) = ft.at(t);
-                if (model.seas.period > 0)
-                {
-                    eta.at(t) += arma::dot(model.seas.X.col(t), seas_old);
-                }
-
-                lambda.at(t) = LinkFunc::ft2mu(eta.at(t), model.flink);
-                if (y.at(t) < EPS)
-                {
-                    lambda.at(t) = (lambda.at(t) < EPS) ? EPS : lambda.at(t);
-                }
-
-                // if (y.at(t) > 0)
-                // {
-                    logp_old += ObsDist::loglike(y.at(t), model.dobs.name, lambda.at(t), model.dobs.par2, true);
-                // } 
-            }
-
-            Vt_hat = ApproxDisturbance::func_Vt_approx(lambda, model.dobs, model.flink); // (ntime + 1) x 1
-
-            arma::vec tmp = 1. / Vt_hat;
-            arma::mat seas_prec(model.seas.period, model.seas.period, arma::fill::zeros);
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                seas_prec = seas_prec + model.seas.X.col(t) * model.seas.X.col(t).t() * tmp.at(t);
-            }
-            seas_prec.diag() += 1. / seas_prior.par2;
-
-            arma::mat seas_prec_chol = arma::chol(arma::symmatu(seas_prec));
-            arma::mat seas_chol = arma::inv(arma::trimatu(seas_prec_chol));
-            arma::vec seas_new = seas_old + seas_prior.mh_sd * seas_chol * arma::randn(model.seas.period);
-
-
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                eta.at(t) = ft.at(t);
-                if (model.seas.period > 0)
-                {
-                    eta.at(t) += arma::dot(model.seas.X.col(t), seas_new);
-                }
-                lambda.at(t) = LinkFunc::ft2mu(eta.at(t), model.flink);
-                if (y.at(t) < EPS)
-                {
-                    lambda.at(t) = (lambda.at(t) < EPS) ? EPS : lambda.at(t);
-                }
-            }
-            bool lambda_in_range = lambda.elem(arma::find(y > 0)).min() > -EPS;
-
-            if (lambda_in_range || obs_list[model.dobs.name] == AVAIL::Dist::gaussian) // non-negative
-            {
-                double logp_new = 0.;
-                for (unsigned int t = 1; t < y.n_elem; t++)
-                {
-                    // if (y.at(t) > 0)
-                    // {
-                        logp_new += ObsDist::loglike(y.at(t), model.dobs.name, lambda.at(t), model.dobs.par2, true);
-                    // }
-                }
-
-                double logratio = std::min(0., logp_new - logp_old);
-
-                if (std::log(R::runif(0., 1.)) < logratio)
-                { // accept
-                    model.seas.val = seas_new;
-                    seas_accept += 1.;
-                }
-            }
-
-            return;
-        } // func update_mu0
-
-        static void update_dispersion( // Checked. OK.
-            double &rho_accept,
-            Model &model,
-            const arma::vec &y, // nobs x 1
-            const arma::vec &hpsi,
-            const Prior &rho_prior)
-        {
-            double rho_old = model.dobs.par2;
-            double logp_old = R::dgamma(rho_old, rho_prior.par1, 1. / rho_prior.par2, true);
-            arma::vec lambda(y.n_elem, arma::fill::zeros);
-            arma::vec ft(y.n_elem, arma::fill::zeros);
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                // double eta = TransFunc::transfer_sliding(t, model.dlag.nL, y, model.dlag.Fphi, hpsi);
-                ft.at(t) = TransFunc::func_ft(t, y, ft, hpsi, model.dlag, model.ftrans);
-                double eta = ft.at(t);
-                if (model.seas.period > 0)
-                {
-                    eta += arma::dot(model.seas.X.col(t), model.seas.val);
-                }
-                lambda.at(t) = LinkFunc::ft2mu(eta, model.flink);
-                logp_old += ObsDist::loglike(y.at(t), model.dobs.name, lambda.at(t), rho_old, true);
-            }
-
-            // double log_rho_old = std::log(std::abs(rho_old) + EPS);
-            // double log_rho_new;
-            // bool success = false;
-            // unsigned int cnt = 0;
-            // while (!success && cnt < MAX_ITER)
-            // {
-            //     log_rho_new = R::rnorm(log_rho_old, mh_sd);
-            //     success = (log_rho_new < UPBND) ? true : false;
-            // }
-
-            // double rho_new = std::exp(log_rho_new);
-
-            bool success = false;
-            double rho_new;
-            unsigned int cnt = 0;
-            while (!success && cnt < MAX_ITER)
-            {
-                rho_new = R::rnorm(rho_old, rho_prior.mh_sd * rho_old); // mh_sd here is the coefficient of variation, i.e., sd/mean.
-                success = (rho_new > 0) ? true : false;
-                cnt++;
-            }
-
-            double logp_new = R::dgamma(rho_new, rho_prior.par1, 1. / rho_prior.par2, true);
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                logp_new += ObsDist::loglike(y.at(t), model.dobs.name, lambda.at(t), rho_new, true);
-            }
-            double logratio = std::min(0., logp_new - logp_old);
-
-            if (std::log(R::runif(0., 1.)) < logratio)
-            { // accept
-                #ifdef DGTF_DO_BOUND_CHECK
-                bound_check(rho_new, "Posterior::update_mu0");
-                #endif
-                
-                model.dobs.par2 = rho_new;
-                rho_accept += 1.;
-                // logp_mu0 = logp_new;
-            }
-
-            
-            return;
-        } // func update_dispersion
-
-        static void update_dlag(
-            double &par1_accept,
-            double &par2_accept,
-            Model &model,
-            const arma::vec &y, // nobs x 1
-            const arma::vec &hpsi,
-            const Prior &par1_prior,
-            const Prior &par2_prior,
-            const double &par1_mh_sd = 0.1,
-            const double &par2_mh_sd = 0.1,
-            const unsigned int &max_lag = 50)
-        {
-            std::map<std::string, AVAIL::Dist> dist_list = AVAIL::dist_list;
-            std::map<std::string, TransFunc::Transfer> trans_list = TransFunc::trans_list;
-            LagDist dlag_old = model.dlag;
-
-            double loglik_old = 0.;
-            arma::vec ft(y.n_elem, arma::fill::zeros);
-
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                // double eta = TransFunc::transfer_sliding(t, model.dlag.nL, y, model.dlag.Fphi, hpsi);
-                ft.at(t) = TransFunc::func_ft(t, y, ft, hpsi, dlag_old, model.ftrans);
-                double eta = ft.at(t);
-                if (model.seas.period > 0)
-                {
-                    eta += arma::dot(model.seas.X.col(t), model.seas.val);
-                }
-                double lambda = LinkFunc::ft2mu(eta, model.flink);
-                loglik_old += ObsDist::loglike(y.at(t), model.dobs.name, lambda, model.dobs.par2, true);
-            }
-            double logp_old = loglik_old;
-
-            double logp_new = 0.;
-            double par1_new = dlag_old.par1;
-            double logprior_par1_old = 0.;
-            double logprior_par1_new = 0.;
-            if (par1_prior.infer)
-            {
-                logprior_par1_old = Prior::dprior(dlag_old.par1, par1_prior, true, false);
-                logp_old += logprior_par1_old;
-
-                bool non_gaussian = !dist_list[par1_prior.name] == AVAIL::Dist::gaussian;
-                if (non_gaussian) // non-negative
-                {
-                    bool success = false;
-                    unsigned int cnt = 0;
-                    while (!success && cnt < MAX_ITER)
-                    {
-                        par1_new = R::rnorm(dlag_old.par1, par1_mh_sd * dlag_old.par1);
-                        success = (par1_new > 0) ? true : false;
-                        cnt++;
-                    }
-                }
-                else // gaussian
-                {
-                    par1_new = R::rnorm(dlag_old.par1, par1_mh_sd * dlag_old.par1);
-                }
-
-                logprior_par1_new = Prior::dprior(par1_new, par1_prior, true, false);
-                logp_new += logprior_par1_new;
-            } // par1
-
-            double par2_new = dlag_old.par2;
-            double logprior_par2_old = 0.;
-            double logprior_par2_new = 0.;
-            if (par2_prior.infer)
-            {
-                logprior_par2_old = Prior::dprior(dlag_old.par2, par2_prior, true, false);
-                logp_old += logprior_par2_old;
-
-                bool non_gaussian = !dist_list[par2_prior.name] == AVAIL::Dist::gaussian;
-                if (non_gaussian) // non-negative
-                {
-                    bool success = false;
-                    unsigned int cnt = 0;
-                    while (!success && cnt < MAX_ITER)
-                    {
-                        par2_new = R::rnorm(dlag_old.par2, par2_mh_sd * dlag_old.par2);
-                        success = (par2_new > 0) ? true : false;
-                        cnt++;
-                    }
-                }
-                else // gaussian
-                {
-                    par2_new = R::rnorm(dlag_old.par2, par2_mh_sd * dlag_old.par2);
-                }
-
-                logprior_par2_new = Prior::dprior(par2_new, par2_prior, true, false);
-                logp_new += logprior_par2_new;
-
-            } // par2
-
-            LagDist dlag_new(dlag_old.name, par1_new, par2_new, dlag_old.truncated);
-            if (trans_list[dlag_new.name] == TransFunc::Transfer::iterative)
-            {
-                dlag_new.truncated = true;
-                dlag_new.nL = y.n_elem - 1;
-                dlag_new.Fphi = LagDist::get_Fphi(dlag_new);
-            }
-
-            double loglik_new = 0.;
-            for (unsigned int t = 1; t < y.n_elem; t++)
-            {
-                // double eta = TransFunc::transfer_sliding(t, nlag, y, Fphi_new, hpsi);
-                ft.at(t) = TransFunc::func_ft(t, y, ft, hpsi, dlag_new, model.ftrans);
-                double eta = ft.at(t);
-                if (model.seas.period > 0)
-                {
-                    eta += arma::dot(model.seas.X.col(t), model.seas.val);
-                }
-                double lambda = LinkFunc::ft2mu(eta, model.flink);
-                loglik_new += ObsDist::loglike(y.at(t), model.dobs.name, lambda, model.dobs.par2, true);
-            }
-            logp_new += loglik_new;
-
-            double logratio = std::min(0., logp_new - logp_old);
-
-            if (std::log(R::runif(0., 1.)) < logratio)
-            { // accept
-                par1_accept += 1;
-                par2_accept += 1;
-
-                model.dlag = dlag_new;
-                model.nP = Model::get_nP(model.dlag, model.seas.period, model.seas.in_state);
-            }
-
-            return;
-
-        } // update_lag
-
         static double update_static_hmc(
             double &energy_diff_out,
             double &grad_norm_out,
@@ -882,7 +540,7 @@ namespace MCMC
             }
 
             return accept_prob;
-        }
+        } // update_static_hmc
 
 
         static arma::vec update_pg_psi(
@@ -978,7 +636,7 @@ namespace MCMC
 
             arma::vec psi_new = arma::vectorise(Theta.row(0));
             return psi_new;
-        }
+        } // update_pg_psi
     }; // class Posterior
 
     class Disturbance
@@ -992,12 +650,6 @@ namespace MCMC
             if (opts.containsElementNamed("L"))
             {
                 L = Rcpp::as<unsigned int>(opts["L"]);
-            }
-
-            kinetic_sd = 1.;
-            if (opts.containsElementNamed("hmc_kinetic_sd"))
-            {
-                kinetic_sd = Rcpp::as<double>(opts["hmc_kinetic_sd"]);
             }
 
             max_lag = 50;
@@ -1110,7 +762,6 @@ namespace MCMC
 
             opts["epsilon"] = 0.01;
             opts["L"] = 10;
-            opts["hmc_kinetic_sd"] = 1.;
             opts["max_lag"] = 50;
 
             opts["mh_sd"] = 0.1;
@@ -1230,11 +881,7 @@ namespace MCMC
             }
 
             std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
-            double y_scale = 1.;
-            if (obs_list[model.dobs.name] == AVAIL::Dist::nbinomp)
-            {
-                y_scale = model.dobs.par2;
-            }
+
 
             wt = arma::randn(nT + 1) * 0.01;
             wt.at(0) = 0.;
@@ -1249,17 +896,6 @@ namespace MCMC
 
             psi_stored.set_size(nT + 1, nsample);
             psi_stored.zeros();
-
-            std::map<std::string, AVAIL::Dist> prior_dist = AVAIL::dist_list;
-            if ((prior_dist[W_prior.name] == AVAIL::Dist::invgamma) && W_prior.infer)
-            {
-                double nw = W_prior.par1;
-                double nSw = W_prior.par1 * W_prior.par2;
-                double nw_new = nw + (double)wt.n_elem - 2.;
-                W_prior.par1 = nw_new;
-                W_prior.par2 = nSw;
-            }
-
             ApproxDisturbance approx_dlm(nT, model.fgain);
 
             // ================================================================
@@ -1446,7 +1082,6 @@ namespace MCMC
         arma::vec log_marg_stored;
 
         unsigned int L = 10;
-        double kinetic_sd = 1.;
 
         double hmc_step_size = 0.01;
         double hmc_step_size_init = 0.01;
