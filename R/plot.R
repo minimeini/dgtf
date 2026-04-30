@@ -6,6 +6,19 @@
     Rt   = expression(R[t]),
     yhat = expression(hat(y)[t]))
 
+
+.ts_targets <- c("Rt", "psi", "yhat")
+
+# Soft replacement for match.arg(): time-series targets are an enum, but
+# any other single string is treated as a static-parameter name and
+# validated downstream against `.dgtf_static_draws(fit)$inferred`.
+.what_kind <- function(what) {
+    if (length(what) != 1L || !is.character(what))
+        stop("`what` must be a single string.", call. = FALSE)
+    if (what %in% .ts_targets) "ts" else "param"
+}
+
+
 # Mirror of src/GainFunc.hpp:43 (psi2hpsi). Logistic is registered C++-side
 # but falls through to identity in the switch, so we omit it here.
 .gain_fun <- function(name) {
@@ -206,7 +219,7 @@
 
 # Shared ggplot renderer. `bands` is the long data.frame from .dgtf_band
 # (possibly rbind'd from many sources).
-.plot_dgtf_band <- function(bands, palette = NULL, alpha = 0.4,
+.plot_dgtf_band <- function(bands, palette = NULL, alpha = 0.5,
                             xlab = "Time", ylab = NULL, main = NULL,
                             theme = ggplot2::theme_minimal(),
                             legend.position = "right",
@@ -251,20 +264,221 @@
     p
 }
 
+# Returns a data.frame with columns:
+#   name   character  -- method/source label (recycled)
+#   index  integer    -- 1..p_dim; identifies which entry of a vector param
+#   value  numeric    -- a single draw (or the truth value)
+#   kind   character  -- "draws" or "truth"
+#
+# Dispatches on class(x):
+#   dgtf_fit   -> pulls .dgtf_static_draws(x)$draws[[param]] (nsample x p_dim)
+#                 and reshapes to long.
+#   numeric    -> length 1 OR length p_dim; treated as truth.
+#   matrix     -> nsample x p_dim, treated as draws (escape hatch for
+#                 externally-fitted methods).
+#
+# `p_dim_hint` is consulted only for the numeric truth branch (we need to
+# know how many indices to broadcast a length-1 truth across, OR validate
+# that a length-k truth matches the expected p_dim). It is filled in by the
+# compare wrapper after at least one fit has been resolved.
+.dgtf_param_long <- function(x, param, name = NULL, p_dim_hint = NULL) {
+    if (inherits(x, "dgtf_fit")) {
+        sd <- .dgtf_static_draws(x)
+        if (!param %in% sd$inferred)
+            stop(sprintf(
+                "Parameter '%s' is not inferred for this fit. Inferred: %s",
+                param, paste(sd$inferred, collapse = ", ")), call. = FALSE)
+        m <- sd$draws[[param]]                 # nsample x p_dim
+        p <- ncol(m)
+        return(data.frame(
+            name  = name %||% "Estimate",
+            index = rep(seq_len(p), each = nrow(m)),
+            value = as.numeric(m),
+            kind  = "draws",
+            stringsAsFactors = FALSE
+        ))
+    }
+    if (is.matrix(x)) {
+        return(data.frame(
+            name  = name %||% "Estimate",
+            index = rep(seq_len(ncol(x)), each = nrow(x)),
+            value = as.numeric(x),
+            kind  = "draws",
+            stringsAsFactors = FALSE
+        ))
+    }
+    if (is.numeric(x) && is.null(dim(x))) {
+        n <- length(x)
+        if (!is.null(p_dim_hint) && n != 1L && n != p_dim_hint)
+            stop(sprintf(
+                "Truth for '%s' has length %d, expected 1 or %d.",
+                param, n, p_dim_hint), call. = FALSE)
+        idx <- if (n == 1L && !is.null(p_dim_hint)) seq_len(p_dim_hint)
+               else seq_len(n)
+        val <- if (n == 1L && !is.null(p_dim_hint)) rep(x, p_dim_hint) else x
+        return(data.frame(
+            name  = name %||% "Truth",
+            index = idx,
+            value = as.numeric(val),
+            kind  = "truth",
+            stringsAsFactors = FALSE
+        ))
+    }
+    stop("Unsupported input to .dgtf_param_long(): ",
+         paste(class(x), collapse = "/"), call. = FALSE)
+}
+
+.plot_dgtf_param_hist <- function(long, palette = NULL, alpha = 0.5,
+                                  bins = 50, xlab = NULL, ylab = "Count",
+                                  main = NULL,
+                                  theme = ggplot2::theme_minimal(),
+                                  legend.position = "right",
+                                  legend.name = "Method") {
+    is_truth     <- long$kind == "truth"
+    truth        <- long[ is_truth, , drop = FALSE]
+    methods      <- long[!is_truth, , drop = FALSE]
+    method_names <- unique(methods$name)
+    cols         <- .dgtf_palette(method_names, palette)
+
+    p <- ggplot2::ggplot(methods, ggplot2::aes(x = value, fill = name)) +
+        ggplot2::geom_histogram(position = "identity", alpha = alpha,
+                                bins = bins, na.rm = TRUE) +
+        ggplot2::scale_fill_manual(name = legend.name, values = cols) +
+        theme +
+        ggplot2::labs(x = xlab, y = ylab, title = main) +
+        ggplot2::theme(legend.position = legend.position)
+
+    if (nrow(truth))
+        p <- p + ggplot2::geom_vline(
+            xintercept = truth$value,
+            color = "black", linetype = "dashed")
+    p
+}
+
+.plot_dgtf_param_box <- function(long, palette = NULL, alpha = 0.5,
+                                 xlab = "Index", ylab = "Value",
+                                 main = NULL,
+                                 theme = ggplot2::theme_minimal(),
+                                 legend.position = "right",
+                                 legend.name = "Method") {
+    is_truth     <- long$kind == "truth"
+    truth        <- long[ is_truth, , drop = FALSE]
+    methods      <- long[!is_truth, , drop = FALSE]
+    methods$index_f <- factor(methods$index)
+    method_names <- unique(methods$name)
+    cols         <- .dgtf_palette(method_names, palette)
+
+    p <- ggplot2::ggplot(methods, ggplot2::aes(x = index_f, y = value,
+                                               fill = name)) +
+        ggplot2::geom_boxplot(alpha = alpha, outlier.size = 0.6) +
+        ggplot2::scale_fill_manual(name = legend.name, values = cols) +
+        theme +
+        ggplot2::labs(x = xlab, y = ylab, title = main) +
+        ggplot2::theme(legend.position = legend.position)
+
+    if (nrow(truth)) {
+        truth$index_f <- factor(truth$index,
+                                levels = levels(methods$index_f))
+        # Drop method/group from inheritance so the truth marker is
+        # rendered once per index regardless of how many methods are
+        # plotted. Use shape = 23 (filled diamond) to read clearly on
+        # both light and dark themes.
+        p <- p + ggplot2::geom_point(
+            data = truth,
+            ggplot2::aes(x = index_f, y = value),
+            inherit.aes = FALSE,
+            color = "black", fill = "black",
+            shape = 23, size = 3)
+    }
+    p
+}
+
+.plot_dgtf_param_single <- function(x, param, truth = NULL,
+                                    color = NULL, alpha = 0.5,
+                                    bins = 50, ...) {
+    sd <- .dgtf_static_draws(x)
+    if (!param %in% sd$inferred)
+        stop(sprintf(
+            "Parameter '%s' is not inferred for this fit. Inferred: %s",
+            param, paste(sd$inferred, collapse = ", ")), call. = FALSE)
+    p_dim <- ncol(sd$draws[[param]])
+    long  <- .dgtf_param_long(x, param, name = "Estimate")
+    if (!is.null(truth))
+        long <- rbind(long,
+                      .dgtf_param_long(truth, param,
+                                       name = "Truth",
+                                       p_dim_hint = p_dim))
+    palette <- if (!is.null(color)) c(Estimate = color) else NULL
+    legend  <- if (is.null(truth)) "none" else "right"
+    if (p_dim == 1L) {
+        .plot_dgtf_param_hist(long, palette = palette, alpha = alpha,
+                              bins = bins, xlab = param,
+                              legend.position = legend, ...)
+    } else {
+        .plot_dgtf_param_box(long, palette = palette, alpha = alpha,
+                             ylab = param, legend.position = legend, ...)
+    }
+}
+
+.plot_dgtf_param_compare <- function(fits, param,
+                                     palette = NULL, alpha = 0.5,
+                                     bins = 50,
+                                     legend.position = "top", ...) {
+    stopifnot(is.list(fits), length(fits) >= 1L,
+              !is.null(names(fits)), all(nzchar(names(fits))))
+
+    # Resolve p_dim from the first dgtf_fit found; needed to broadcast /
+    # validate any numeric-truth entries in the list.
+    p_dim_hint <- NULL
+    for (e in fits) {
+        if (inherits(e, "dgtf_fit")) {
+            sd <- .dgtf_static_draws(e)
+            if (param %in% sd$inferred) {
+                p_dim_hint <- ncol(sd$draws[[param]])
+                break
+            }
+        } else if (is.matrix(e)) {
+            p_dim_hint <- ncol(e); break
+        }
+    }
+    if (is.null(p_dim_hint))
+        stop(sprintf(
+            "No fit in the input has '%s' inferred (and no draws matrix ",
+            "supplied to seed p_dim).", param), call. = FALSE)
+
+    long <- do.call(rbind, Map(
+        function(x, nm) .dgtf_param_long(x, param, name = nm,
+                                         p_dim_hint = p_dim_hint),
+        fits, names(fits)))
+
+    if (p_dim_hint == 1L)
+        .plot_dgtf_param_hist(long, palette = palette, alpha = alpha,
+                              bins = bins, xlab = param,
+                              legend.position = legend.position, ...)
+    else
+        .plot_dgtf_param_box(long, palette = palette, alpha = alpha,
+                             ylab = param,
+                             legend.position = legend.position, ...)
+}
+
 #' @export
 plot.dgtf_fit <- function(x,
-                          what  = c("Rt", "psi", "yhat"),
+                          what  = "Rt",
                           level = 0.95,
                           truth = NULL,
                           time  = NULL,
                           color = NULL,
-                          alpha = 0.4,
+                          alpha = 0.5,
                           xlab  = "Time",
                           ylab  = NULL,
                           main  = NULL,
                           theme = ggplot2::theme_minimal(),
                           ...) {
-    what <- match.arg(what)
+    kind <- .what_kind(what)
+    if (kind == "param") {
+        return(.plot_dgtf_param_single(x, what, truth = truth, ...))
+    }
+
     band <- .dgtf_band(x, what = what, level = level, time = time,
                        name = "Estimate")
     if (!is.null(truth))
@@ -285,11 +499,11 @@ plot.dgtf_fit <- function(x,
 
 #' @export
 dgtf_compare_plot <- function(fits,
-                              what            = c("Rt", "psi", "yhat"),
+                              what            = "Rt",
                               level           = 0.95,
                               time            = NULL,
                               palette         = NULL,
-                              alpha           = 0.2,
+                              alpha           = 0.5,
                               legend.position = "right",
                               legend.name     = "Method",
                               legend.nrow     = NULL,
@@ -300,7 +514,16 @@ dgtf_compare_plot <- function(fits,
                               ...) {
     stopifnot(is.list(fits), length(fits) >= 1L,
               !is.null(names(fits)), all(nzchar(names(fits))))
-    what <- match.arg(what)
+    kind <- .what_kind(what)
+    if (kind == "param") {
+        return(.plot_dgtf_param_compare(fits, what,
+            palette = palette, alpha = alpha,
+            legend.position = legend.position,
+            legend.name = legend.name,
+            theme = theme, ...
+        ))
+    }
+
     bands <- Map(
         function(x, nm) .dgtf_band(x, what = what, level = level,
                                    time = time, name = nm),
