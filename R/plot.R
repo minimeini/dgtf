@@ -127,15 +127,18 @@
                                       has_ribbon = TRUE))
     }
 
-    # Branch 3: bare matrix (T x 3)
-    if (is.matrix(x) || (is.data.frame(x) && ncol(x) == 3L)) {
+    # Branch 3: T x 3 quantile matrix or data frame (lower/median/upper).
+    if ((is.matrix(x) || is.data.frame(x)) && ncol(x) == 3L) {
         return(.dgtf_band_from_matrix(as.matrix(x), time = time, name = name,
                                       has_ribbon = TRUE))
     }
 
-    # Branch 4: numeric vector -> truth (no ribbon)
-    if (is.numeric(x) && is.null(dim(x))) {
-        n <- length(x)
+    # Branch 4: numeric vector (or array with at most one non-trivial
+    # dimension, e.g. simulate()'s n x 1 psi matrix) -> truth, no ribbon.
+    if (is.numeric(x) &&
+        (is.null(dim(x)) || sum(dim(x) != 1L) <= 1L)) {
+        x_vec <- as.numeric(x)
+        n     <- length(x_vec)
         if (is.null(time)) {
             time <- seq(0, n - 1)
         } else {
@@ -144,7 +147,7 @@
         return(data.frame(
             time       = as.numeric(time),
             lower      = NA_real_,
-            central    = as.numeric(x),
+            central    = x_vec,
             upper      = NA_real_,
             name       = name %||% "Truth",
             has_ribbon = FALSE,

@@ -327,40 +327,32 @@ namespace MCMC
                 logp_old += R::dnorm4(wt_old, 0., prior_sd, true);
 
                 /*
-                Metropolis-Hastings
+                Metropolis-Hastings.
                 */
-                approx_dlm.update_by_wt(y, wt);
-                arma::vec eta_hat = approx_dlm.get_eta_approx(model.seas); // nT x 1, f0, Fn and psi is updated
-                arma::vec lambda_hat = LinkFunc::ft2mu<arma::vec>(eta_hat, model.flink); // nT x 1
-                arma::vec Vt_hat = ApproxDisturbance::func_Vt_approx(
-                    lambda_hat, model.dobs, model.flink); // nT x 1
 
-                arma::mat Fn = approx_dlm.get_Fn(); // nT x nT
-                arma::vec Fnt = Fn.col(t - 1); // nT x 1
+                // Forward proposal scale, evaluated at the current wt.
+                approx_dlm.update_by_wt(y, wt);
+                arma::vec eta_hat = approx_dlm.get_eta_approx(model.seas);
+                arma::vec lambda_hat = LinkFunc::ft2mu<arma::vec>(eta_hat, model.flink);
+                arma::vec Vt_hat = ApproxDisturbance::func_Vt_approx(
+                    lambda_hat, model.dobs, model.flink);
+
+                arma::mat Fn = approx_dlm.get_Fn();
+                arma::vec Fnt = Fn.col(t - 1);
                 arma::vec Fnt2 = Fnt % Fnt;
 
-                arma::vec tmp = Fnt2 / Vt_hat; // nT x 1, element-wise division
+                arma::vec tmp = Fnt2 / Vt_hat;
                 if (model.zero.inflated)
                 {
-                    tmp %= model.zero.z.subvec(1, tmp.n_elem); // If y[t] is missing (z[t] = 0), F[t]*F[t]'/V[t] is removed from the posterior variance of the proposal
+                    tmp %= model.zero.z.subvec(1, tmp.n_elem);
                 }
-                double mh_prec = arma::accu(tmp) + EPS8;
-                // mh_prec = std::abs(mh_prec) + 1. / w0_prior.par2 + EPS;
+                double mh_prec_fwd = arma::accu(tmp) + EPS8;
+                double Btmp_fwd = std::sqrt(1. / mh_prec_fwd) * mh_sd;
 
-                double Bs = 1. / mh_prec;
-                double Btmp = std::sqrt(Bs);
-                // double Btmp = prior_sd;
-                Btmp *= mh_sd;
-                // Btmp = std::min(Btmp, 10.);
-
-                double wt_new = R::rnorm(wt_old, Btmp); // Sample from MH proposal
-                // bound_check(wt_new, "Posterior::update_wt: wt_new");
-                /*
-                Metropolis-Hastings
-                */
+                double wt_new = R::rnorm(wt_old, Btmp_fwd);
 
                 wt.at(t) = wt_new;
-                arma::vec lam = model.wt2lambda(y, wt, model.seas.period, model.seas.X, model.seas.val); // Checked. OK.
+                arma::vec lam = model.wt2lambda(y, wt, model.seas.period, model.seas.X, model.seas.val);
 
                 double logp_new = 0.;
                 for (unsigned int i = t; i < y.n_elem; i++)
@@ -369,12 +361,30 @@ namespace MCMC
                     {
                         logp_new += ObsDist::loglike(y.at(i), model.dobs.name, lam.at(i), model.dobs.par2, true);
                     }
-                } // Checked. OK.
+                }
+                logp_new += R::dnorm4(wt_new, 0., prior_sd, true);
 
-                logp_new += R::dnorm4(wt_new, 0., prior_sd, true); // prior
+                // Reverse proposal scale, evaluated at the proposed wt.
+                approx_dlm.update_by_wt(y, wt);
+                arma::vec eta_hat_r = approx_dlm.get_eta_approx(model.seas);
+                arma::vec lambda_hat_r = LinkFunc::ft2mu<arma::vec>(eta_hat_r, model.flink);
+                arma::vec Vt_hat_r = ApproxDisturbance::func_Vt_approx(
+                    lambda_hat_r, model.dobs, model.flink);
+                arma::mat Fn_r = approx_dlm.get_Fn();
+                arma::vec Fnt_r = Fn_r.col(t - 1);
+                arma::vec tmp_r = (Fnt_r % Fnt_r) / Vt_hat_r;
+                if (model.zero.inflated)
+                {
+                    tmp_r %= model.zero.z.subvec(1, tmp_r.n_elem);
+                }
+                double mh_prec_rev = arma::accu(tmp_r) + EPS8;
+                double Btmp_rev = std::sqrt(1. / mh_prec_rev) * mh_sd;
 
-                double logratio = logp_new - logp_old;
-                // logratio += logq_old - logq_new;
+                // Hastings correction: log q(wt_old | wt_new) - log q(wt_new | wt_old)
+                double logq_fwd = R::dnorm4(wt_new, wt_old, Btmp_fwd, true);
+                double logq_rev = R::dnorm4(wt_old, wt_new, Btmp_rev, true);
+
+                double logratio = (logp_new - logp_old) + (logq_rev - logq_fwd);
                 logratio = std::min(0., logratio);
                 double logps = 0.;
                 if (std::log(R::runif(0., 1.)) < logratio)
@@ -389,6 +399,7 @@ namespace MCMC
                     // reject
                     logps = logp_old;
                     wt.at(t) = wt_old;
+                    approx_dlm.update_by_wt(y, wt);  // restore filter to current state
                 }
             }
         } // func update_wt
@@ -521,13 +532,25 @@ namespace MCMC
             double H_current = current_U + current_K;
             energy_diff_out = H_proposed - H_current;
 
+
             // Metropolis acceptance
             double accept_prob = 0.0;
             bool accept = false;
-            if (std::isfinite(energy_diff_out) && std::abs(energy_diff_out) < 100.0)
+            if (!std::isfinite(energy_diff_out) || energy_diff_out > 100.0)
             {
-                accept_prob = std::min(1.0, std::exp(-energy_diff_out));
-                if (std::log(R::runif(0., 1.)) < -energy_diff_out)
+                // Numerical divergence (NaN / +/-Inf); reject with prob 0.
+                accept_prob = 0.0;
+            }
+            else if (energy_diff_out <= 0.0)
+            {
+                // Hamiltonian decreased (or unchanged): always accept.
+                accept_prob = 1.0;
+                accept = true;
+            }
+            else
+            {
+                accept_prob = std::exp(-energy_diff_out);  // in (0, 1)
+                if (R::runif(0., 1.) < accept_prob)
                 {
                     accept = true;
                 }
