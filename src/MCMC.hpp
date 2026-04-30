@@ -1056,6 +1056,8 @@ namespace MCMC
                 hmc_step_size_init = eps.at(0);
             }
 
+            hmc_step_size = hmc_step_size_init;
+
             hmc_target_accept = 0.75;
             if (opts.containsElementNamed("hmc_target_accept"))
             {
@@ -1073,24 +1075,6 @@ namespace MCMC
             {
                 update_static = true;
                 hmc_accept = 0.;
-                hmc_step_size = hmc_step_size_init;
-
-                // Initialize epsilon vector (uniform step size for all params)
-                epsilon.set_size(nparam);
-                epsilon.fill(hmc_step_size_init);
-                if (opts.containsElementNamed("epsilon"))
-                {
-                    arma::vec eps = Rcpp::as<arma::vec>(opts["epsilon"]);
-                    if (epsilon.n_elem <= eps.n_elem)
-                    {
-                        epsilon = eps.subvec(0, epsilon.n_elem - 1);
-                    }
-                    else
-                    {
-                        epsilon.subvec(0, eps.n_elem - 1) = eps;
-                        epsilon.subvec(eps.n_elem, epsilon.n_elem - 1).fill(epsilon.at(eps.n_elem - 1));
-                    }
-                }
 
                 // Initialize mass matrix to identity
                 mass_diag.set_size(nparam);
@@ -1388,7 +1372,27 @@ namespace MCMC
                             }
                         }
                     } // mass matrix adaptation
-                }
+                    else if (b > nburnin)
+                    {
+                        hmc_post_burnin_sum += accept_prob;
+                        hmc_post_burnin_count++;
+
+                        if (hmc_post_burnin_count >= 50)
+                        {
+                            double recent_rate = hmc_post_burnin_sum / 50.0;
+                            if (recent_rate < 0.4)
+                            {
+                                hmc_step_size *= 0.9;
+                            }
+                            else if (recent_rate > 0.9)
+                            {
+                                hmc_step_size *= 1.05;
+                            }
+                            hmc_post_burnin_sum = 0.0;
+                            hmc_post_burnin_count = 0;
+                        }
+                    }
+                } // if update_static
 
 
                 bool saveiter = b > nburnin && ((b - nburnin - 1) % nthin == 0);
@@ -1441,11 +1445,14 @@ namespace MCMC
     private:
         arma::vec log_marg_stored;
 
-        arma::vec epsilon;
         unsigned int L = 10;
         double kinetic_sd = 1.;
+
         double hmc_step_size = 0.01;
         double hmc_step_size_init = 0.01;
+        double hmc_post_burnin_sum = 0.0;
+        unsigned int hmc_post_burnin_count = 0;
+
         double hmc_T_target = 2.0;
         double hmc_target_accept = 0.75;
         bool hmc_dual_averaging = true;
