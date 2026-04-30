@@ -94,7 +94,7 @@ fit <- dgtf(
 
 ```{r}
 plot(fit, what = "Rt", truth = log1p(exp(sim$psi[1:190])))
-plot(fit, what = "seas")
+plot(fit, what = "W")
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}

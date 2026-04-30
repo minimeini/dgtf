@@ -195,8 +195,9 @@
     if (!length(names))
         return(stats::setNames(character(0), character(0)))
     n    <- length(names)
-    auto <- if (n <= 8L) .okabe_ito[seq_len(n)]
-            else grDevices::hcl.colors(n, palette = "Set 2")
+    auto <- if (n == 1L) "black"
+        else if (n <= 8L) .okabe_ito[seq_len(n)]
+        else grDevices::hcl.colors(n, palette = "Set 2")
     # Default assignment: alphabetical order over `names` -> Okabe-Ito sequence.
     out <- stats::setNames(auto, sort(names))[names]
 
