@@ -177,9 +177,7 @@ summary.dgtf_fit <- function(object, ...) {
             sd        = apply(dm, 2, stats::sd),
             q025      = apply(dm, 2, stats::quantile, probs = 0.025),
             q975      = apply(dm, 2, stats::quantile, probs = 0.975),
-            # ess_bulk  = NA_real_,
-            # ess_tail  = NA_real_,
-            # rhat      = NA_real_,
+            ess       = apply(dm, 2, ess),
             row.names = NULL,
             stringsAsFactors = FALSE
         )
@@ -330,8 +328,13 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
     if (!is.null(x$param_table) && nrow(x$param_table) > 0L) {
         cat("\nStatic parameters\n")
         pt <- x$param_table
-        for (nm in setdiff(names(pt), "parameter"))
-            pt[[nm]] <- formatC(pt[[nm]], digits = digits, format = "g")
+        for (nm in setdiff(names(pt), "parameter")) {
+            pt[[nm]] <- if (nm == "ess") {
+                formatC(round(pt[[nm]]), format = "d", big.mark = ",")
+            } else {
+                formatC(pt[[nm]], digits = digits, format = "g")
+            }
+        }
         print(pt, row.names = FALSE)
     }
 

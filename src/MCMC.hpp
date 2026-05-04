@@ -335,7 +335,7 @@ namespace MCMC
             ApproxDisturbance &approx_dlm,
             const arma::vec &y, // (nT + 1) x 1
             Model &model,
-            const double &mh_sd = 0.1
+            const double &mh_sd = 1.0
         )
         {
             arma::vec ft(y.n_elem, arma::fill::zeros);
@@ -360,32 +360,40 @@ namespace MCMC
                 logp_old += R::dnorm4(wt_old, 0., prior_sd, true);
 
                 /*
-                Metropolis-Hastings.
+                Metropolis-Hastings
                 */
-
-                // Forward proposal scale, evaluated at the current wt.
                 approx_dlm.update_by_wt(y, wt);
-                arma::vec eta_hat = approx_dlm.get_eta_approx(model.seas);
-                arma::vec lambda_hat = LinkFunc::ft2mu<arma::vec>(eta_hat, model.flink);
+                arma::vec eta_hat = approx_dlm.get_eta_approx(model.seas); // nT x 1, f0, Fn and psi is updated
+                arma::vec lambda_hat = LinkFunc::ft2mu<arma::vec>(eta_hat, model.flink); // nT x 1
                 arma::vec Vt_hat = ApproxDisturbance::func_Vt_approx(
-                    lambda_hat, model.dobs, model.flink);
+                    lambda_hat, model.dobs, model.flink); // nT x 1
 
-                arma::mat Fn = approx_dlm.get_Fn();
-                arma::vec Fnt = Fn.col(t - 1);
+                arma::mat Fn = approx_dlm.get_Fn(); // nT x nT
+                arma::vec Fnt = Fn.col(t - 1); // nT x 1
                 arma::vec Fnt2 = Fnt % Fnt;
 
-                arma::vec tmp = Fnt2 / Vt_hat;
+                arma::vec tmp = Fnt2 / Vt_hat; // nT x 1, element-wise division
                 if (model.zero.inflated)
                 {
-                    tmp %= model.zero.z.subvec(1, tmp.n_elem);
+                    tmp %= model.zero.z.subvec(1, tmp.n_elem); // If y[t] is missing (z[t] = 0), F[t]*F[t]'/V[t] is removed from the posterior variance of the proposal
                 }
-                double mh_prec_fwd = arma::accu(tmp) + EPS8;
-                double Btmp_fwd = std::sqrt(1. / mh_prec_fwd) * mh_sd;
+                double mh_prec = arma::accu(tmp) + EPS8;
+                // mh_prec = std::abs(mh_prec) + 1. / w0_prior.par2 + EPS;
 
-                double wt_new = R::rnorm(wt_old, Btmp_fwd);
+                double Bs = 1. / mh_prec;
+                double Btmp = std::sqrt(Bs);
+                // double Btmp = prior_sd;
+                Btmp *= mh_sd;
+                // Btmp = std::min(Btmp, 10.);
+
+                double wt_new = R::rnorm(wt_old, Btmp); // Sample from MH proposal
+                // bound_check(wt_new, "Posterior::update_wt: wt_new");
+                /*
+                Metropolis-Hastings
+                */
 
                 wt.at(t) = wt_new;
-                arma::vec lam = model.wt2lambda(y, wt, model.seas.period, model.seas.X, model.seas.val);
+                arma::vec lam = model.wt2lambda(y, wt, model.seas.period, model.seas.X, model.seas.val); // Checked. OK.
 
                 double logp_new = 0.;
                 for (unsigned int i = t; i < y.n_elem; i++)
@@ -394,30 +402,12 @@ namespace MCMC
                     {
                         logp_new += ObsDist::loglike(y.at(i), model.dobs.name, lam.at(i), model.dobs.par2, true);
                     }
-                }
-                logp_new += R::dnorm4(wt_new, 0., prior_sd, true);
+                } // Checked. OK.
 
-                // Reverse proposal scale, evaluated at the proposed wt.
-                approx_dlm.update_by_wt(y, wt);
-                arma::vec eta_hat_r = approx_dlm.get_eta_approx(model.seas);
-                arma::vec lambda_hat_r = LinkFunc::ft2mu<arma::vec>(eta_hat_r, model.flink);
-                arma::vec Vt_hat_r = ApproxDisturbance::func_Vt_approx(
-                    lambda_hat_r, model.dobs, model.flink);
-                arma::mat Fn_r = approx_dlm.get_Fn();
-                arma::vec Fnt_r = Fn_r.col(t - 1);
-                arma::vec tmp_r = (Fnt_r % Fnt_r) / Vt_hat_r;
-                if (model.zero.inflated)
-                {
-                    tmp_r %= model.zero.z.subvec(1, tmp_r.n_elem);
-                }
-                double mh_prec_rev = arma::accu(tmp_r) + EPS8;
-                double Btmp_rev = std::sqrt(1. / mh_prec_rev) * mh_sd;
+                logp_new += R::dnorm4(wt_new, 0., prior_sd, true); // prior
 
-                // Hastings correction: log q(wt_old | wt_new) - log q(wt_new | wt_old)
-                double logq_fwd = R::dnorm4(wt_new, wt_old, Btmp_fwd, true);
-                double logq_rev = R::dnorm4(wt_old, wt_new, Btmp_rev, true);
-
-                double logratio = (logp_new - logp_old) + (logq_rev - logq_fwd);
+                double logratio = logp_new - logp_old;
+                // logratio += logq_old - logq_new;
                 logratio = std::min(0., logratio);
                 double logps = 0.;
                 if (std::log(R::runif(0., 1.)) < logratio)
@@ -432,7 +422,6 @@ namespace MCMC
                     // reject
                     logps = logp_old;
                     wt.at(t) = wt_old;
-                    approx_dlm.update_by_wt(y, wt);  // restore filter to current state
                 }
             }
         } // func update_wt
@@ -756,7 +745,7 @@ namespace MCMC
                 max_lag = Rcpp::as<unsigned int>(opts["max_lag"]);
             }
 
-            mh_sd = 0.01;
+            mh_sd = 1.0;
             if (opts.containsElementNamed("mh_sd"))
             {
                 mh_sd = Rcpp::as<double>(opts["mh_sd"]);
@@ -862,7 +851,7 @@ namespace MCMC
             opts["L"] = 10;
             opts["max_lag"] = 50;
 
-            opts["mh_sd"] = 0.1;
+            opts["mh_sd"] = 1.0;
             opts["nburnin"] = 100;
             opts["nthin"] = 1;
             opts["nsample"] = 100;
@@ -1106,26 +1095,6 @@ namespace MCMC
                             }
                         }
                     } // mass matrix adaptation
-                    else if (b > nburnin)
-                    {
-                        hmc_post_burnin_sum += accept_prob;
-                        hmc_post_burnin_count++;
-
-                        if (hmc_post_burnin_count >= 50)
-                        {
-                            double recent_rate = hmc_post_burnin_sum / 50.0;
-                            if (recent_rate < 0.4)
-                            {
-                                hmc_step_size *= 0.9;
-                            }
-                            else if (recent_rate > 0.9)
-                            {
-                                hmc_step_size *= 1.05;
-                            }
-                            hmc_post_burnin_sum = 0.0;
-                            hmc_post_burnin_count = 0;
-                        }
-                    }
                 } // if update_static
 
 
@@ -1192,7 +1161,7 @@ namespace MCMC
         arma::vec mass_diag;                // nparam x 1, diagonal mass matrix
         HMCDiagnostics_arma hmc_diag;       // diagnostics storage
 
-        double mh_sd = 0.1;
+        double mh_sd = 1.0;
         unsigned int nburnin = 100;
         unsigned int nthin = 1;
         unsigned int nsample = 100;

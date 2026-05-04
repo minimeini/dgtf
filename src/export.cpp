@@ -4,6 +4,7 @@
 #include "SequentialMonteCarlo.hpp"
 #include "MCMC.hpp"
 #include "VariationalBayes.hpp"
+#include "Diagnostics.hpp"
 
 #include <progress.hpp>
 #include <progress_bar.hpp>
@@ -11,6 +12,13 @@
 using namespace Rcpp;
 // [[Rcpp::plugins(cpp17)]]
 // [[Rcpp::depends(RcppArmadillo, BH, RcppProgress, pg)]]
+
+
+// [[Rcpp::export]]
+double ess_cpp(const arma::vec& x) {
+    return diagnostics::effective_sample_size(x);
+}
+
 
 //' @export
 // [[Rcpp::export]]

@@ -75,7 +75,7 @@ you supplied to `dgtf_model()`.
 ```{r prior}
 prior <- dgtf_prior(
   seasonality = normal(1, 1),
-  W           = inv_gamma(1, 1),
+  W           = inv_gamma(2, 1),
   rho         = inv_gamma(1, 1),
   lag         = list(par1 = normal(0, 1), par2 = inv_gamma(1, 1))
 )
@@ -118,14 +118,18 @@ control changes:
 ```{r switch-method, eval = FALSE}
 fit_mcmc <- dgtf(sim$y, mod, prior,
                  method  = "mcmc",
-                 control = mcmc_control(iter = 2000, warmup = 1, thin = 1))
+                 control = mcmc_control(iter = 5000, warmup = 5000, thin = 3, epsilon = 0.005, L = 50))
 
+print(fit_mcmc$fit$hmc$mass_matrix)
 summary(fit_mcmc)
 ```
 
 ```{r}
 plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
 plot(fit_mcmc, what = "W", truth = 0.01)
+plot(fit_mcmc, what = "seas", truth = 2)
+plot(fit_mcmc, what = "par1", truth = 1.386262)
+plot(fit_mcmc, what = "par2", truth = 0.3226017)
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
