@@ -88,7 +88,7 @@ fit <- dgtf(
   model   = mod,
   prior   = prior,
   method  = "hva",
-  control = vb_control(iter = 1000, n_sample = 500, n_particle = 500)
+  control = vb_control(iter = 2000, n_sample = 5000, n_particle = 500)
 )
 summary(fit)
 ```
