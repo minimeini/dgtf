@@ -12,6 +12,12 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6,
                       fig.height = 4)
 ```
 
+```{r compile-install-package, eval = FALSE}
+# # Compile and install this package locally
+# Rcpp::compileAttributes()
+# devtools::document()
+# devtools::install()
+```
 
 ```{r setup}
 library(dgtf)
@@ -126,10 +132,13 @@ summary(fit_mcmc)
 
 ```{r}
 plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
-plot(fit_mcmc, what = "W", truth = 0.01)
+plot(fit_mcmc, what = "W", truth = 0.01, type = "trace")
+plot(fit_mcmc, what = "W", truth = 0.01, type = "hist")
+
 plot(fit_mcmc, what = "seas", truth = 2)
-plot(fit_mcmc, what = "par1", truth = 1.386262)
-plot(fit_mcmc, what = "par2", truth = 0.3226017)
+
+plot(fit_mcmc, what = "par1", truth = 1.386262, type = "trace")
+plot(fit_mcmc, what = "par2", truth = 0.3226017, type = "hist")
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}

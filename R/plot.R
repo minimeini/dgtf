@@ -297,6 +297,7 @@
         return(data.frame(
             name  = name %||% "Estimate",
             index = rep(seq_len(p), each = nrow(m)),
+            iter  = rep(seq_len(nrow(m)), times = p),
             value = as.numeric(m),
             kind  = "draws",
             stringsAsFactors = FALSE
@@ -304,27 +305,34 @@
     }
     if (is.matrix(x)) {
         return(data.frame(
-            name  = name %||% "Estimate",
+            name = name %||% "Estimate",
             index = rep(seq_len(ncol(x)), each = nrow(x)),
+            iter = rep(seq_len(nrow(x)), times = ncol(x)),
             value = as.numeric(x),
-            kind  = "draws",
+            kind = "draws",
             stringsAsFactors = FALSE
         ))
     }
     if (is.numeric(x) && is.null(dim(x))) {
         n <- length(x)
-        if (!is.null(p_dim_hint) && n != 1L && n != p_dim_hint)
+        if (!is.null(p_dim_hint) && n != 1L && n != p_dim_hint) {
             stop(sprintf(
                 "Truth for '%s' has length %d, expected 1 or %d.",
-                param, n, p_dim_hint), call. = FALSE)
-        idx <- if (n == 1L && !is.null(p_dim_hint)) seq_len(p_dim_hint)
-               else seq_len(n)
+                param, n, p_dim_hint
+            ), call. = FALSE)
+        }
+        idx <- if (n == 1L && !is.null(p_dim_hint)) {
+            seq_len(p_dim_hint)
+        } else {
+            seq_len(n)
+        }
         val <- if (n == 1L && !is.null(p_dim_hint)) rep(x, p_dim_hint) else x
         return(data.frame(
-            name  = name %||% "Truth",
+            name = name %||% "Truth",
             index = idx,
+            iter = NA_integer_,
             value = as.numeric(val),
-            kind  = "truth",
+            kind = "truth",
             stringsAsFactors = FALSE
         ))
     }
@@ -356,6 +364,58 @@
         p <- p + ggplot2::geom_vline(
             xintercept = truth$value,
             color = "black", linetype = "dashed")
+    p
+}
+
+.plot_dgtf_param_trace <- function(long, palette = NULL, alpha = 0.5,
+                                   xlab = "Iteration", ylab = NULL,
+                                   main = NULL,
+                                   theme = ggplot2::theme_minimal(),
+                                   legend.position = "right",
+                                   legend.name = "Method") {
+    is_truth <- long$kind == "truth"
+    truth    <- long[ is_truth, , drop = FALSE]
+    draws    <- long[!is_truth, , drop = FALSE]
+    draws$index_f <- factor(draws$index)
+
+    multi_index <- length(unique(draws$index)) > 1L
+
+    if (multi_index) {
+        # Per-index discrete palette; method (`name`) collapsed into group.
+        p <- ggplot2::ggplot(
+                draws,
+                ggplot2::aes(x = iter, y = value,
+                             color = index_f,
+                             group = interaction(name, index_f))) +
+            ggplot2::geom_line(alpha = alpha, na.rm = TRUE) +
+            ggplot2::scale_color_discrete(name = "Index") +
+            theme +
+            ggplot2::labs(x = xlab, y = ylab, title = main) +
+            ggplot2::theme(legend.position = legend.position)
+    } else {
+        # Single-index: color by `name` through `.dgtf_palette` so the
+        # default for a lone "Estimate" is black + alpha = 0.5 -> the
+        # same gray as the histogram. User-passed `color =` flows in
+        # via `palette = c(Estimate = color)` from the caller.
+        method_names <- unique(draws$name)
+        cols         <- .dgtf_palette(method_names, palette)
+        p <- ggplot2::ggplot(
+                draws,
+                ggplot2::aes(x = iter, y = value,
+                             color = name, group = name)) +
+            ggplot2::geom_line(alpha = alpha, na.rm = TRUE) +
+            ggplot2::scale_color_manual(name = legend.name, values = cols) +
+            theme +
+            ggplot2::labs(x = xlab, y = ylab, title = main) +
+            ggplot2::theme(legend.position = legend.position) +
+            ggplot2::guides(color = "none")  # no legend for a single line
+    }
+
+    if (nrow(truth))
+        p <- p + ggplot2::geom_hline(
+            yintercept = truth$value,
+            color = "black", linetype = "dashed")
+
     p
 }
 
@@ -398,13 +458,21 @@
 }
 
 .plot_dgtf_param_single <- function(x, param, truth = NULL,
+                                    type = "hist",
                                     color = NULL, alpha = 0.5,
                                     bins = 50, ...) {
+    type <- match.arg(type, c("hist", "trace"))
     sd <- .dgtf_static_draws(x)
     if (!param %in% sd$inferred)
         stop(sprintf(
             "Parameter '%s' is not inferred for this fit. Inferred: %s",
             param, paste(sd$inferred, collapse = ", ")), call. = FALSE)
+
+    if (type == "trace" && !identical(x$method, "mcmc"))
+        stop("Trace plots require an MCMC fit; this fit is '",
+             x$method, "'. HVA produces i.i.d. importance samples, ",
+             "not chains.", call. = FALSE)
+
     p_dim <- ncol(sd$draws[[param]])
     long  <- .dgtf_param_long(x, param, name = "Estimate")
     if (!is.null(truth))
@@ -412,6 +480,11 @@
                       .dgtf_param_long(truth, param,
                                        name = "Truth",
                                        p_dim_hint = p_dim))
+
+    if (type == "trace")
+        return(.plot_dgtf_param_trace(long, alpha = alpha,
+                                      ylab = param, ...))
+
     palette <- if (!is.null(color)) c(Estimate = color) else NULL
     legend  <- if (is.null(truth)) "none" else "right"
     if (p_dim == 1L) {
@@ -468,6 +541,7 @@
 #' @export
 plot.dgtf_fit <- function(x,
                           what  = "Rt",
+                          type = c("hist", "trace"),
                           level = 0.95,
                           truth = NULL,
                           time  = NULL,
@@ -478,9 +552,17 @@ plot.dgtf_fit <- function(x,
                           main  = NULL,
                           theme = ggplot2::theme_minimal(),
                           ...) {
+    type <- match.arg(type)
     kind <- .what_kind(what)
     if (kind == "param") {
-        return(.plot_dgtf_param_single(x, what, truth = truth, ...))
+        return(.plot_dgtf_param_single(x, what, truth = truth, type = type, ...))
+    }
+
+    if (type != "hist") {
+        stop("`type = '", type, "'` is only meaningful for static-",
+            "parameter plots; got `what = '", what, "'`.",
+            call. = FALSE
+        )
     }
 
     band <- .dgtf_band(x, what = what, level = level, time = time,
