@@ -19,6 +19,10 @@ double ess_cpp(const arma::vec& x) {
     return diagnostics::effective_sample_size(x);
 }
 
+// [[Rcpp::export]]
+double split_rhat_cpp(const arma::mat& X) {
+    return diagnostics::split_rhat(X);
+}
 
 //' @export
 // [[Rcpp::export]]

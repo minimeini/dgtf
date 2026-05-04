@@ -733,7 +733,7 @@ namespace MCMC
         {
             Rcpp::List opts = mcmc_settings;
 
-            L = 10;
+            L = 50;
             if (opts.containsElementNamed("L"))
             {
                 L = Rcpp::as<unsigned int>(opts["L"]);
@@ -783,7 +783,7 @@ namespace MCMC
                 hmc_T_target = Rcpp::as<double>(opts["hmc_T_target"]);
             }
 
-            hmc_step_size_init = 0.01;
+            hmc_step_size_init = 0.005;
             if (opts.containsElementNamed("hmc_step_size_init"))
             {
                 hmc_step_size_init = Rcpp::as<double>(opts["hmc_step_size_init"]);
@@ -1148,12 +1148,9 @@ namespace MCMC
     private:
         arma::vec log_marg_stored;
 
-        unsigned int L = 10;
-
-        double hmc_step_size = 0.01;
-        double hmc_step_size_init = 0.01;
-        double hmc_post_burnin_sum = 0.0;
-        unsigned int hmc_post_burnin_count = 0;
+        unsigned int L = 50;
+        double hmc_step_size = 0.005;
+        double hmc_step_size_init = 0.005;
 
         double hmc_T_target = 2.0;
         double hmc_target_accept = 0.75;

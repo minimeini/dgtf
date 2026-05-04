@@ -155,6 +155,10 @@ logLik.dgtf_fit <- function(object, ...) {
               class = "logLik")
 }
 
+#' @details The `rhat` column reports single-chain split-Rhat (Gelman-Rubin
+#'   on the two halves of the chain). It detects within-chain drift but
+#'   cannot diagnose multi-modality. For a stronger check, run multiple
+#'   independent fits and call `rhat(list(fit1, fit2, ...))`.
 #' @export
 #' @export
 summary.dgtf_fit <- function(object, ...) {
@@ -172,15 +176,23 @@ summary.dgtf_fit <- function(object, ...) {
         dm <- d$draws_matrix
         param_table <- data.frame(
             parameter = colnames(dm),
-            mean      = apply(dm, 2, mean),
-            median    = apply(dm, 2, stats::median),
-            sd        = apply(dm, 2, stats::sd),
-            q025      = apply(dm, 2, stats::quantile, probs = 0.025),
-            q975      = apply(dm, 2, stats::quantile, probs = 0.975),
-            ess       = apply(dm, 2, ess),
+            mean = apply(dm, 2, mean),
+            median = apply(dm, 2, stats::median),
+            sd = apply(dm, 2, stats::sd),
+            q025 = apply(dm, 2, stats::quantile, probs = 0.025),
+            q975 = apply(dm, 2, stats::quantile, probs = 0.975),
             row.names = NULL,
             stringsAsFactors = FALSE
         )
+
+        if (identical(method, "mcmc")) {
+            param_table$ess <- apply(dm, 2, ess)
+            param_table$rhat <- apply(dm, 2, function(col) {
+                tryCatch(rhat(matrix(col, ncol = 1L)),
+                    error = function(e) NA_real_
+                )
+            })
+        }
         # if (requireNamespace("posterior", quietly = TRUE)) {
         #     ds <- tryCatch(
         #         posterior::summarise_draws(
@@ -331,6 +343,8 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
         for (nm in setdiff(names(pt), "parameter")) {
             pt[[nm]] <- if (nm == "ess") {
                 formatC(round(pt[[nm]]), format = "d", big.mark = ",")
+            } else if (nm == "rhat") {
+                formatC(pt[[nm]], digits = 3L, format = "f")
             } else {
                 formatC(pt[[nm]], digits = digits, format = "g")
             }
