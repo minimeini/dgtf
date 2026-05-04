@@ -294,6 +294,8 @@ summary.dgtf_fit <- function(object, ...) {
         n                = length(object$y),
         nsample          = nsample,
         elapsed          = object$elapsed,
+        elapsed_optimization = object$elapsed_optimization,
+        elapsed_sampling     = object$elapsed_sampling,
         model_components = model_components,
         param_table      = param_table,
         state_summary    = state_summary,
@@ -336,6 +338,18 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
                     format(x$nsample, big.mark = ",")))
     if (!is.null(x$elapsed))
         cat(sprintf("Elapsed     : %.2f s\n", as.numeric(x$elapsed)))
+    if (!is.null(x$elapsed_optimization)) {
+        cat(sprintf(
+            "  optim     : %.2f s\n",
+            as.numeric(x$elapsed_optimization)
+        ))
+    }
+    if (!is.null(x$elapsed_sampling)) {
+        cat(sprintf(
+            "  sampling  : %.2f s\n",
+            as.numeric(x$elapsed_sampling)
+        ))
+    }
 
     if (!is.null(x$param_table) && nrow(x$param_table) > 0L) {
         cat("\nStatic parameters\n")

@@ -135,7 +135,7 @@ plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
 plot(fit_mcmc, what = "W", truth = 0.01, type = "trace")
 plot(fit_mcmc, what = "W", truth = 0.01, type = "hist")
 
-plot(fit_mcmc, what = "seas", truth = 2)
+plot(fit_mcmc, what = "seas", truth = c(1, 2), type = "trace")
 
 plot(fit_mcmc, what = "par1", truth = 1.386262, type = "trace")
 plot(fit_mcmc, what = "par2", truth = 0.3226017, type = "hist")

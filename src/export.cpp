@@ -232,7 +232,6 @@ Rcpp::List dgtf_infer(
         linear_bayes.smoother(model, y);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
 
         output = linear_bayes.get_output(model);
 
@@ -257,8 +256,6 @@ Rcpp::List dgtf_infer(
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
 
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
-
         output = mcs.get_output();
 
         {
@@ -280,7 +277,6 @@ Rcpp::List dgtf_infer(
         ffbs.infer(model, y);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
         output = ffbs.get_output();
 
         {
@@ -302,7 +298,6 @@ Rcpp::List dgtf_infer(
         tfs.infer(model, y);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
 
         output = tfs.get_output();
 
@@ -326,7 +321,6 @@ Rcpp::List dgtf_infer(
         pl.infer(model, y);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
 
         output = pl.get_output();
 
@@ -349,7 +343,6 @@ Rcpp::List dgtf_infer(
         mcmc.infer(model, y);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
 
         output = mcmc.get_output();
         break;
@@ -362,7 +355,6 @@ Rcpp::List dgtf_infer(
         hvb.infer(model, y);
         auto stop = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-        std::cout << "\nElapsed time: " << duration.count() << " microseconds" << std::endl;
 
         output = hvb.get_output();
         break;

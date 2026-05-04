@@ -1,6 +1,7 @@
 #ifndef _VARIATIONALBAYES_HPP
 #define _VARIATIONALBAYES_HPP
 
+#include <chrono>
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -371,10 +372,6 @@ namespace VB
             const arma::vec &y,
             const bool &verbose = VERBOSE)
         {
-            #ifdef DGTF_TIMING_HVA
-            auto start = std::chrono::high_resolution_clock::now();
-            #endif
-
             std::map<std::string, SysEq::Evolution> sys_list = SysEq::sys_list;
             fsys = model.fsys;
             const unsigned int nT = y.n_elem - 1;
@@ -387,17 +384,15 @@ namespace VB
             arma::cube Theta_all(model.nP, N, y.n_elem);
             arma::vec z(y.n_elem, arma::fill::ones);
 
+            auto start = std::chrono::high_resolution_clock::now();
             for (unsigned int b = 0; b < niter; b++)
             {
-                // bool saveiter = b > niter && ((b - niter - 1) % nthin == 0);
                 Rcpp::checkUserInterrupt();
 
                 // TFS sampler
                 // ------------------
-                // You MUST set initial_resample_all = true (MCS smoothing) and final_resample_by_weights = false (reduce degeneracy) to make this algorithm work.
-                // arma::cube Theta_tmp = arma::zeros<arma::cube>(model.nP, N, y.n_elem);
-                
-                // auto start = std::chrono::high_resolution_clock::now();
+                // MUST set initial_resample_all = true (MCS smoothing) and final_resample_by_weights = false (reduce degeneracy) to make this algorithm work.
+
                 Theta.zeros();
                 z.ones();
                 double marg_loglik = SMC::SequentialMonteCarlo::auxiliary_filter0(
@@ -415,12 +410,7 @@ namespace VB
                     model.zero.z = arma::conv_to<arma::vec>::from(u < model.zero.prob);
                 }
                 // ------------------
-                // auto end = std::chrono::high_resolution_clock::now();
-                // auto micros = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-                // Rcpp::Rcout << "\n  [VB] Iteration " << b << " - SMC took " << micros << " microseconds." << std::endl;
 
-
-                // start = std::chrono::high_resolution_clock::now();
                 // Compute gradient
                 arma::mat dFphi_grad;
                 arma::vec dloglik_dlag(2, arma::fill::zeros);
@@ -526,11 +516,6 @@ namespace VB
                     dloglik_dlag.at(1) = dpar2_acc;
                 }
 
-                // end = std::chrono::high_resolution_clock::now();
-                // micros = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-                // Rcpp::Rcout << "  [VB] Iteration " << b << " - Gradient computation took " << micros << " microseconds." << std::endl;
-
-                // start = std::chrono::high_resolution_clock::now();
                 // HVB parameter updates
                 if (update_static)
                 {
@@ -661,28 +646,24 @@ namespace VB
                     Static::update_params(model, param_selected, eta);
                 } // end update_static
 
-                // end = std::chrono::high_resolution_clock::now();
-                // micros = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-                // Rcpp::Rcout << "  [VB] Iteration " << b << " - HVB update took " << micros << " microseconds." << std::endl;
-
-
                 if (verbose)
                 {
-                    Rcpp::Rcout << "\rProgress: " << b + 1 << "/" << niter;
+                    Rcpp::Rcout << "\rOptimization: " << b + 1 << "/" << niter;
                 }
 
             } // HVB SGD Loop
+
+            auto end = std::chrono::high_resolution_clock::now();
+            elapsed_opt_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+            Rcpp::Rcout << "\nOptimization done in "
+                        << std::fixed << std::setprecision(2)
+                        << (elapsed_opt_us / 1e6) << " s.\n";
+
 
             if (verbose)
             {
                 Rcpp::Rcout << std::endl;
             }
-
-            #ifdef DGTF_TIMING_HVA
-            auto end = std::chrono::high_resolution_clock::now();
-            auto total = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-            Rcpp::Rcout << "  [VB] Total SGD time: " << total << " microseconds." << std::endl;
-            #endif
 
 
             if (model.zero.inflated)
@@ -717,9 +698,6 @@ namespace VB
             //     psi_stored = Theta_tmp.row_as_mat(0); // (nT + 1) x nsample
             // }
 
-            #ifdef DGTF_TIMING_HVA
-            start = std::chrono::high_resolution_clock::now();
-            #endif
 
             arma::mat eta_tilde = rtheta_batch(gamma, mu, B, d, nsample); // m x nsample
 
@@ -761,6 +739,7 @@ namespace VB
             arma::mat Theta_sample(model.nP, y.n_elem, arma::fill::zeros);
             arma::vec z_sample(y.n_elem, arma::fill::ones);
 
+            start = std::chrono::high_resolution_clock::now();
             for (unsigned int i = 0; i < nsample; i++)
             {
                 eta = Static::tilde2eta(
@@ -876,22 +855,22 @@ namespace VB
 
                 if (verbose)
                 {
-                    Rcpp::Rcout << "\rProgress: " << i + 1 << "/" << nsample;
+                    Rcpp::Rcout << "\rSampling: " << i + 1 << "/" << nsample;
                 }
             } // sampling loop
+
+
+            end = std::chrono::high_resolution_clock::now();
+            elapsed_sample_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+            Rcpp::Rcout << "\nSampling done in "
+                        << std::fixed << std::setprecision(2)
+                        << (elapsed_sample_us / 1e6) << " s.\n";
 
             if (verbose)
             {
                 Rcpp::Rcout << std::endl;
             }
-
-            #ifdef DGTF_TIMING_HVA
-            end = std::chrono::high_resolution_clock::now();
-            total = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-            Rcpp::Rcout << "  [VB] Total sampling time: " << total << " microseconds." << std::endl;
-            #endif
-
-        }
+        } // end infer
 
         Rcpp::List get_output()
         {
@@ -953,10 +932,15 @@ namespace VB
             }
 
             output["inferred"] = Rcpp::wrap(param_selected);
+            output["elapsed_opt_us"]    = (double) elapsed_opt_us;
+            output["elapsed_sample_us"] = (double) elapsed_sample_us;
             return output;
         }
 
     private:
+        long long elapsed_opt_us = 0;
+        long long elapsed_sample_us = 0;
+
         double learning_rate = 0.01;
         double eps_step_size = 1.e-6;
         unsigned int k = 1; // rank of unknown static parameters.

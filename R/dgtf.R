@@ -108,6 +108,23 @@ dgtf <- function(y,
     )
     elapsed <- difftime(Sys.time(), t0, units = "secs")
 
+    elapsed_optimization <- NULL
+    elapsed_sampling <- NULL
+    if (!is.null(raw$fit$elapsed_opt_us)) {
+        elapsed_optimization <- as.difftime(
+            raw$fit$elapsed_opt_us / 1e6,
+            units = "secs"
+        )
+        raw$fit$elapsed_opt_us <- NULL
+    }
+    if (!is.null(raw$fit$elapsed_sample_us)) {
+        elapsed_sampling <- as.difftime(
+            raw$fit$elapsed_sample_us / 1e6,
+            units = "secs"
+        )
+        raw$fit$elapsed_sample_us <- NULL
+    }
+
     structure(
         list(
             fit     = raw$fit,
@@ -117,7 +134,9 @@ dgtf <- function(y,
             prior   = prior,
             control = control,
             method  = method,
-            elapsed = elapsed
+            elapsed = elapsed,
+            elapsed_optimization = elapsed_optimization,
+            elapsed_sampling     = elapsed_sampling
         ),
         class = "dgtf_fit"
     )
