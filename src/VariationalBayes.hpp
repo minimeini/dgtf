@@ -413,21 +413,6 @@ namespace VB
                 // auto micros = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
                 // Rcpp::Rcout << "\n  [VB] Iteration " << b << " - SMC took " << micros << " microseconds." << std::endl;
 
-                // // MCMC sampler
-                // // ------------------
-                // ApproxDisturbance approx_dlm(nT, model.fgain);
-                // approx_dlm.set_Fphi(model.dlag, model.dlag.nL);
-                // arma::vec wt_accept(nT + 1, arma::fill::zeros);
-                // arma::vec wt = arma::randn<arma::vec>(nT + 1);
-                // for (unsigned int k = 0; k < 100; k++)
-                // {
-                //     MCMC::Posterior::update_wt(wt, wt_accept, approx_dlm, y, model);
-                // }
-
-                // arma::vec psi = arma::cumsum(wt); // (nT + 1) x 1
-                // arma::mat Theta = TransFunc::psi2theta(psi, y, model.ftrans, model.fgain, model.dlag);
-                // // ------------------
-
 
                 // start = std::chrono::high_resolution_clock::now();
                 // Compute gradient
@@ -791,28 +776,27 @@ namespace VB
                     z_stored.col(i) = arma::conv_to<arma::vec>::from(u < prob_stored.col(i));
                 }
 
-                // ApproxDisturbance approx_dlm(nT, model.fgain);
-                // approx_dlm.set_Fphi(model.dlag, model.dlag.nL);
-                // arma::vec wt_accept(nT + 1, arma::fill::zeros);
-                // arma::vec wt = arma::randn<arma::vec>(nT + 1);
-                // for (unsigned int k = 0; k < 100; k++)
-                // {
-                //     MCMC::Posterior::update_wt(wt, wt_accept, approx_dlm, y, model);
-                // }
-                    
-                // arma::vec psi = arma::cumsum(wt); // (nT + 1) x 1
-                // arma::mat Theta = TransFunc::psi2theta(psi, y, model.ftrans, model.fgain, model.dlag);
 
+                // Draw a single particle trajectory
+                unsigned int pidx = static_cast<unsigned int>(R::runif(0., static_cast<double>(N)));
+                pidx = std::min(pidx, N - 1);
 
                 if (sys_list[model.fsys] == SysEq::Evolution::identity)
                 {
-                    psi_stored.col(i) = Theta.col(y.n_elem - 1);
-                    Theta_stored.slice(i) = Theta;
+                    for (unsigned int t = 0; t < y.n_elem; t++)
+                    {
+                        Theta_stored.slice(i).col(t) = Theta_all.slice(t).col(pidx);
+                    }
+                    psi_stored.col(i) = Theta_stored.slice(i).col(y.n_elem - 1);
                 }
                 else
                 {
-                    psi_stored.col(i) = arma::vectorise(Theta.row(0));
+                    for (unsigned int t = 0; t < y.n_elem; t++)
+                    {
+                        psi_stored.at(t, i) = Theta_all.at(0, pidx, t);
+                    }
                 }
+
 
                 unsigned int idx = 0;
                 for (unsigned int k = 0; k < param_selected.size(); k++)
