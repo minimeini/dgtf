@@ -119,14 +119,14 @@ control changes:
 ```{r switch-method, eval = FALSE}
 fit_mcmc <- dgtf(sim$y, mod, prior,
                  method  = "mcmc",
-                 control = mcmc_control(iter = 5000, warmup = 2000, thin = 2))
+                 control = mcmc_control(iter = 5000, warmup = 5000, thin = 3))
 
 summary(fit_mcmc)
 ```
 
 ```{r}
 plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
-plot(fit_mcmc, what = "W")
+plot(fit_mcmc, what = "par1")
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
@@ -154,6 +154,24 @@ dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
          True = 0.01),
     what = "W"
+)
+
+dgtf_compare_plot(
+    list(HVA = fit, MCMC = fit_mcmc,
+         True = 0.01),
+    what = "par1"
+)
+
+dgtf_compare_plot(
+    list(HVA = fit, MCMC = fit_mcmc,
+         True = 0.01),
+    what = "par2"
+)
+
+dgtf_compare_plot(
+    list(HVA = fit, MCMC = fit_mcmc,
+         True = 0.01),
+    what = "rho"
 )
 ```
 

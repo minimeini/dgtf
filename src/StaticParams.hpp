@@ -753,7 +753,58 @@ namespace Static
             bound_check(deriv, "dlogJoint_dWtilde: deriv");
         #endif
         return deriv;
-    }
+    } // dlogJoint_dWtilde
+
+
+    /**
+     * @brief Non-centered W gradient: prior contribution only.
+     * The likelihood contribution through psi(W) is computed externally
+     * and passed in as dloglik_dWtilde_val.
+     *
+     * For IG(a,b) prior on W with Wtilde = -log(W):
+     *   d/dWtilde log p(W) = (a + 1) - b/W
+     */
+    static double dlogJoint_dWtilde_nc(
+        const double W,
+        const Dist &W_prior,
+        const double dloglik_dWtilde_val)
+    {
+        std::map<std::string, AVAIL::Dist> dist_list = AVAIL::dist_list;
+        double aw = W_prior.par1;
+        double bw = W_prior.par2;
+
+        double deriv_prior;
+        if (dist_list[W_prior.name] == AVAIL::Dist::invgamma)
+        {
+            deriv_prior = (aw + 1.0) - bw / (W + EPS);
+        }
+        else if (dist_list[W_prior.name] == AVAIL::Dist::halft)
+        {
+            deriv_prior = (bw + 1.0) * W / (aw * aw * bw + W);
+            deriv_prior -= 1.0;
+            deriv_prior *= -0.5;
+        }
+        else if (dist_list[W_prior.name] == AVAIL::Dist::halfnormal)
+        {
+            deriv_prior = W / (aw * aw);
+            deriv_prior -= 1.0;
+            deriv_prior *= -0.5;
+        }
+        else if (dist_list[W_prior.name] == AVAIL::Dist::gamma)
+        {
+            deriv_prior = aw - bw * W;
+        }
+        else if (dist_list[W_prior.name] == AVAIL::Dist::halfcauchy)
+        {
+            deriv_prior = W / (bw * bw + W) - 0.5;
+        }
+        else
+        {
+            throw std::invalid_argument("dlogJoint_dWtilde_nc: prior is not defined.");
+        }
+
+        return deriv_prior + dloglik_dWtilde_val;
+    } // dlogJoint_dWtilde_nc
 
 
 
@@ -871,19 +922,20 @@ namespace Static
      * @param model
      * @return arma::vec
      */
-    inline arma::vec dlogJoint_deta( // Checked. OK.
-        const arma::vec &y,          // (nT + 1) x 1
-        const arma::mat &Theta,        // nP x (nT + 1)
-        const arma::vec &lambda,         // (nT + 1) x 1
-        const arma::vec &dllk_dpar, // 2 x 1
-        const arma::vec &eta,        // m x 1
+    inline arma::vec dlogJoint_deta(
+        const arma::vec &y,
+        const arma::mat &Theta,
+        const arma::vec &lambda,
+        const arma::vec &dllk_dpar,
+        const arma::vec &eta,
         const std::vector<std::string> &param_selected,
         const Prior &W_prior,
         const Prior &lag_par1_prior,
         const Prior &lag_par2_prior,
         const Prior &rho_prior,
         const Prior &seas_prior,
-        const Model &model)
+        const Model &model,
+        const double dloglik_dW_nc = std::numeric_limits<double>::quiet_NaN())
     {
         std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
         std::map<std::string, AVAIL::Param> static_param_list = AVAIL::static_param_list;
@@ -906,8 +958,17 @@ namespace Static
             {
             case AVAIL::Param::W:
             {
-                deriv.at(idx) = dlogJoint_dWtilde(
-                    Theta, val, W_prior, model.zero, model.derr.full_rank);
+                if (std::isfinite(dloglik_dW_nc))
+                {
+                    // Non-centered: prior + pre-computed likelihood contribution
+                    deriv.at(idx) = dlogJoint_dWtilde_nc(val, W_prior, dloglik_dW_nc);
+                }
+                else
+                {
+                    // Centered (original)
+                    deriv.at(idx) = dlogJoint_dWtilde(
+                        Theta, val, W_prior, model.zero, model.derr.full_rank);
+                }
                 idx += 1;
                 break;
             }
@@ -972,15 +1033,16 @@ namespace Static
     }
 
     inline double logJoint(
-        const arma::vec &y,      // (nT + 1) x 1
-        const arma::mat &Theta,  // nP x (nT + 1)
-        const arma::vec &lambda, // (nT + 1) x 1
+        const arma::vec &y,
+        const arma::mat &Theta,
+        const arma::vec &lambda,
         const Prior &W_prior,
         const Prior &par1_prior,
         const Prior &par2_prior,
         const Prior &rho_prior,
         const Prior &seas_prior,
-        const Model &model)
+        const Model &model,
+        const bool w_noncentered = false)
     {
         std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
         double logp = 0.;
@@ -1004,8 +1066,14 @@ namespace Static
             // Add evolution from theta[t-1] to theta[t]
             if (W_prior.infer && !model.derr.full_rank)
             {
-                // logp(theta[t] | theta[t-1], gamma)
-                logp += R::dnorm4(Theta.at(0, t), Theta.at(0, t - 1), Wchol, true);
+                if (w_noncentered)
+                {
+                    logp += -0.5 * std::log(model.derr.par1 + EPS);
+                }
+                else
+                {
+                    logp += R::dnorm4(Theta.at(0, t), Theta.at(0, t - 1), Wchol, true);
+                }
             }
 
             // Add evolution from z[t-1] to z[t] for zero-inflated model

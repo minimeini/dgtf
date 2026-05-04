@@ -183,7 +183,9 @@ namespace MCMC
             const Prior &par1_prior, 
             const Prior &par2_prior, 
             const bool &zintercept_infer, 
-            const bool &zzcoef_infer
+            const bool &zzcoef_infer,
+            const arma::vec &psi_nc = arma::vec(),
+            const bool w_noncentered = false
         )
         {
             arma::vec lambda(y.n_elem, arma::fill::zeros);
@@ -201,17 +203,48 @@ namespace MCMC
                 y, hpsi, model.dlag.nL, model.dlag.name, model.dlag.par1, model.dlag.par2,
                 model.dobs, model.seas, model.zero, model.flink);
 
-            // dloglik_dlag.t().print("\n Leapfrog dloglik_dlag:");
+            // Compute non-centered W likelihood gradient if requested
+            double dloglik_dW_nc_val = std::numeric_limits<double>::quiet_NaN();
+            if (w_noncentered && W_prior.infer)
+            {
+                // v_nc[s] = h'(psi_s) * (-psi_s / 2)
+                // deta_t/dWtilde = transfer_sliding(t, nL, y, Fphi, v_nc)
+                arma::vec dhpsi = GainFunc::psi2dhpsi<arma::vec>(psi_nc, model.fgain);
+                arma::vec v_nc = dhpsi % (-psi_nc * 0.5);
+
+                dloglik_dW_nc_val = 0.0;
+                double nc_cnt = 0.0;
+                for (unsigned int t = 1; t < y.n_elem; t++)
+                {
+                    if (model.zero.inflated && model.zero.z.at(t) < EPS) continue;
+                    nc_cnt += 1.0;
+
+                    double eta_t = TransFunc::transfer_sliding(t, model.dlag.nL, y, model.dlag.Fphi, hpsi);
+                    if (model.seas.period > 0)
+                    {
+                        eta_t += arma::dot(model.seas.X.col(t), model.seas.val);
+                    }
+                    double dll_deta = Model::dloglik_deta(
+                        eta_t, y.at(t), model.dobs.par2, model.dobs.name, model.flink);
+
+                    double deta_dWtilde = TransFunc::transfer_sliding(
+                        t, model.dlag.nL, y, model.dlag.Fphi, v_nc);
+
+                    dloglik_dW_nc_val += dll_deta * deta_dWtilde;
+                }
+                dloglik_dW_nc_val += 0.5 * nc_cnt;
+            }
 
             arma::vec gd_U = Static::dlogJoint_deta(
                 y, Theta, lambda, dloglik_dlag, params, param_selected,
-                W_prior, par1_prior, par2_prior, rho_prior, seas_prior, model);
+                W_prior, par1_prior, par2_prior, rho_prior, seas_prior, model,
+                dloglik_dW_nc_val);
             
             // negate it because U = -log(p) and what we calculate above is the gradient of log(p)
             gd_U *= -1.;
 
             return gd_U;
-        }
+        } // grad_U
     }; // class Leapfrog
 
     class Posterior
@@ -409,7 +442,8 @@ namespace MCMC
             double &grad_norm_out,
             Model &model,
             const arma::vec &y,
-            const arma::vec &psi,
+            arma::vec &psi,           // non-const: updated on accept
+            arma::vec &wt,            // non-const: updated on accept
             const std::vector<std::string> &param_selected,
             const Prior &W_prior,
             const Prior &seas_prior,
@@ -424,12 +458,31 @@ namespace MCMC
         )
         {
             std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
+            const bool w_nc = W_prior.infer; // use non-centered W when W is inferred
+
+            // ============================================================
+            // Non-centered setup: compute standardized cumulative sums
+            //   xi[s] = psi[s] / sqrt(W_old),  s = 0, ..., nT
+            // so that psi[s] = sqrt(W) * xi[s] for any W during leapfrog.
+            // ============================================================
+            double W_entry = model.derr.par1;
+            double sqrt_W_entry = std::sqrt(W_entry + EPS);
+            arma::vec xi;  // cumulative sum of epsilon, fixed during HMC
+            if (w_nc)
+            {
+                xi = psi / sqrt_W_entry;  // xi[0] = 0
+            }
+
+            // Current psi, Theta, hpsi (will be recomputed if W moves)
+            arma::vec psi_cur = psi;
             arma::mat Theta(model.nP, y.n_elem, arma::fill::zeros);
-            Theta.row(0) = psi.t();
-            arma::vec hpsi = GainFunc::psi2hpsi<arma::vec>(psi, model.fgain);
+            Theta.row(0) = psi_cur.t();
+            arma::vec hpsi = GainFunc::psi2hpsi<arma::vec>(psi_cur, model.fgain);
 
             // Save current state for potential revert
             Model mod_current = model;
+            arma::vec psi_save = psi;
+            arma::vec wt_save = wt;
 
             // Mass matrix quantities
             arma::vec inv_mass = 1.0 / mass_diag;
@@ -448,7 +501,8 @@ namespace MCMC
             }
 
             double logp_old = Static::logJoint(
-                y, Theta, lambda, W_prior, par1_prior, par2_prior, rho_prior, seas_prior, model);
+                y, Theta, lambda, W_prior, par1_prior, par2_prior, rho_prior, seas_prior,
+                model, w_nc);
 
             // Potential energy: U = -log p
             double current_U = -logp_old;
@@ -473,7 +527,8 @@ namespace MCMC
             arma::vec grad_U = Leapfrog::grad_U(
                 model, params, y, hpsi, Theta, param_selected,
                 W_prior, seas_prior, rho_prior, par1_prior, par2_prior,
-                zintercept_infer, zzcoef_infer);
+                zintercept_infer, zzcoef_infer,
+                psi_cur, w_nc);
 
             grad_norm_out = arma::norm(grad_U);
 
@@ -491,11 +546,21 @@ namespace MCMC
                     model.seas.period, model.seas.in_state);
                 Static::update_params(model, param_selected, params);
 
+                // Non-centered: recompute psi, Theta, hpsi from new W
+                if (w_nc)
+                {
+                    double sqrt_W_cur = std::sqrt(model.derr.par1 + EPS);
+                    psi_cur = sqrt_W_cur * xi;
+                    Theta.row(0) = psi_cur.t();
+                    hpsi = GainFunc::psi2hpsi<arma::vec>(psi_cur, model.fgain);
+                }
+
                 // Recompute gradient
                 grad_U = Leapfrog::grad_U(
                     model, params, y, hpsi, Theta, param_selected,
                     W_prior, seas_prior, rho_prior, par1_prior, par2_prior,
-                    zintercept_infer, zzcoef_infer);
+                    zintercept_infer, zzcoef_infer,
+                    psi_cur, w_nc);
 
                 // Full step for momentum (except at last step)
                 if (i != L)
@@ -510,7 +575,7 @@ namespace MCMC
             // Negate momentum for reversibility
             p *= -1.;
 
-            // Calculate proposed energy
+            // Calculate proposed energy (hpsi and psi_cur already up-to-date)
             for (unsigned int t = 1; t < y.n_elem; t++)
             {
                 double eta = TransFunc::transfer_sliding(t, model.dlag.nL, y, model.dlag.Fphi, hpsi);
@@ -522,7 +587,8 @@ namespace MCMC
             }
 
             double logp_new = Static::logJoint(
-                y, Theta, lambda, W_prior, par1_prior, par2_prior, rho_prior, seas_prior, model);
+                y, Theta, lambda, W_prior, par1_prior, par2_prior, rho_prior, seas_prior,
+                model, w_nc);
 
             double proposed_U = -logp_new;
             double proposed_K = 0.5 * arma::accu(arma::square(p) % inv_mass);
@@ -532,38 +598,47 @@ namespace MCMC
             double H_current = current_U + current_K;
             energy_diff_out = H_proposed - H_current;
 
-
             // Metropolis acceptance
             double accept_prob = 0.0;
             bool accept = false;
             if (!std::isfinite(energy_diff_out) || energy_diff_out > 100.0)
             {
-                // Numerical divergence (NaN / +/-Inf); reject with prob 0.
                 accept_prob = 0.0;
             }
             else if (energy_diff_out <= 0.0)
             {
-                // Hamiltonian decreased (or unchanged): always accept.
                 accept_prob = 1.0;
                 accept = true;
             }
             else
             {
-                accept_prob = std::exp(-energy_diff_out);  // in (0, 1)
+                accept_prob = std::exp(-energy_diff_out);
                 if (R::runif(0., 1.) < accept_prob)
                 {
                     accept = true;
                 }
             }
 
-            if (!accept)
+            if (accept)
+            {
+                // Non-centered: update psi and wt to reflect the new W
+                if (w_nc)
+                {
+                    psi = psi_cur;
+                    wt.at(0) = 0.0;
+                    wt.subvec(1, psi.n_elem - 1) = arma::diff(psi);
+                }
+            }
+            else
             {
                 // Revert model to current state
                 model = mod_current;
+                psi = psi_save;
+                wt = wt_save;
             }
 
             return accept_prob;
-        } // update_static_hmc
+        } // func update_static_hmc
 
 
         static arma::vec update_pg_psi(
@@ -971,7 +1046,7 @@ namespace MCMC
                     double grad_norm = 0.0;
                     double accept_prob = Posterior::update_static_hmc(
                         energy_diff, grad_norm,
-                        model, y, psi, param_selected,
+                        model, y, psi, wt, param_selected,
                         W_prior, seas_prior, rho_prior, par1_prior, par2_prior,
                         hmc_step_size, mass_diag,
                         zintercept_infer, zzcoef_infer, L);

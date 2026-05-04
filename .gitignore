@@ -13,6 +13,7 @@ src/*.so
 src/*.dll
 src/*.rds
 src/symbols.rds
+*.rds
 
 # Rcpp::compileAttributes-generated files (regenerated on every build)
 src/RcppExports.cpp
