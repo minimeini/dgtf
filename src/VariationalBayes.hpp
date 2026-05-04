@@ -34,6 +34,7 @@ namespace VB
         unsigned int niter = 1000;
         // unsigned int ntotal = 3001;
         unsigned int N = 500; // number of SMC particles
+        unsigned int N_sample = 50;
 
         bool use_discount = false;
         double discount_factor = 0.95;
@@ -91,6 +92,11 @@ namespace VB
                 N = Rcpp::as<unsigned int>(opts["num_particle"]);
             }
 
+            N_sample = 50;
+            if (opts.containsElementNamed("num_particle_sample"))
+            {
+                N_sample = Rcpp::as<unsigned int>(opts["num_particle_sample"]);
+            }
 
             use_discount = false;
             if (opts.containsElementNamed("use_discount"))
@@ -749,7 +755,11 @@ namespace VB
                     }
                     }
                 }
-            }
+            } // end eta_tilde floor
+
+            arma::cube Theta_all_sample(model.nP, N_sample, y.n_elem);
+            arma::mat Theta_sample(model.nP, y.n_elem, arma::fill::zeros);
+            arma::vec z_sample(y.n_elem, arma::fill::ones);
 
             for (unsigned int i = 0; i < nsample; i++)
             {
@@ -761,40 +771,42 @@ namespace VB
                 
                 Static::update_params(model, param_selected, eta);
 
-                Theta.zeros();
-                z.ones();
+                Theta_sample.zeros();
+                z_sample.ones();
                 double log_cond_marg = SMC::SequentialMonteCarlo::auxiliary_filter0(
-                    Theta, Theta_all, z, model, y, N, 
+                    Theta_sample, Theta_all_sample, z_sample, model, y, N_sample,
                     true, false, use_discount, discount_factor);
-                // arma::mat Theta = arma::mean(Theta_tmp, 1); // nP x (nT + 1)
 
                 if (model.zero.inflated)
                 {
-                    prob_stored.col(i) = z; // (nT + 1) x 1
+                    prob_stored.col(i) = z_sample; // (nT + 1) x 1
                     // Vectorized Bernoulli for storage
                     arma::vec u = arma::randu<arma::vec>(model.zero.z.n_elem);
                     z_stored.col(i) = arma::conv_to<arma::vec>::from(u < prob_stored.col(i));
                 }
 
 
-                // Draw a single particle trajectory
-                unsigned int pidx = static_cast<unsigned int>(R::runif(0., static_cast<double>(N)));
-                pidx = std::min(pidx, N - 1);
+                // // Draw a single particle trajectory
+                // unsigned int pidx = static_cast<unsigned int>(R::runif(0., static_cast<double>(N_sample)));
+                // pidx = std::min(pidx, N_sample - 1);
 
                 if (sys_list[model.fsys] == SysEq::Evolution::identity)
                 {
-                    for (unsigned int t = 0; t < y.n_elem; t++)
-                    {
-                        Theta_stored.slice(i).col(t) = Theta_all.slice(t).col(pidx);
-                    }
-                    psi_stored.col(i) = Theta_stored.slice(i).col(y.n_elem - 1);
+                    // for (unsigned int t = 0; t < y.n_elem; t++)
+                    // {
+                    //     Theta_stored.slice(i).col(t) = Theta_all_sample.slice(t).col(pidx);
+                    // }
+                    // psi_stored.col(i) = Theta_stored.slice(i).col(y.n_elem - 1);
+                    psi_stored.col(i) = Theta.col(y.n_elem - 1);
+                    Theta_stored.slice(i) = Theta_sample;
                 }
                 else
                 {
-                    for (unsigned int t = 0; t < y.n_elem; t++)
-                    {
-                        psi_stored.at(t, i) = Theta_all.at(0, pidx, t);
-                    }
+                    // for (unsigned int t = 0; t < y.n_elem; t++)
+                    // {
+                    //     psi_stored.at(t, i) = Theta_all_sample.at(0, pidx, t);
+                    // }
+                    psi_stored.col(i) = arma::vectorise(Theta_sample.row(0));
                 }
 
 

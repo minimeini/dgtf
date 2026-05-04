@@ -83,13 +83,12 @@ prior <- dgtf_prior(
 ```
 
 ```{r infer}
-
 fit <- dgtf(
   y       = c(sim$y),
   model   = mod,
   prior   = prior,
   method  = "hva",
-  control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
+  control = vb_control(iter = 1000, n_sample = 500, n_particle = 500)
 )
 summary(fit)
 ```
@@ -119,14 +118,14 @@ control changes:
 ```{r switch-method, eval = FALSE}
 fit_mcmc <- dgtf(sim$y, mod, prior,
                  method  = "mcmc",
-                 control = mcmc_control(iter = 5000, warmup = 5000, thin = 3))
+                 control = mcmc_control(iter = 2000, warmup = 1, thin = 1))
 
 summary(fit_mcmc)
 ```
 
 ```{r}
 plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
-plot(fit_mcmc, what = "par1")
+plot(fit_mcmc, what = "W", truth = 0.01)
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
@@ -146,7 +145,7 @@ dgtf_compare_plot(
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = 0.01),
+         True = c(1, 2)),
     what = "seas"
 )
 
@@ -158,19 +157,19 @@ dgtf_compare_plot(
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = 0.01),
+         True = 1.386262),
     what = "par1"
 )
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = 0.01),
+         True = 0.3226017),
     what = "par2"
 )
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = 0.01),
+         True = 30),
     what = "rho"
 )
 ```
