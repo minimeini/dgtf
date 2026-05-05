@@ -765,28 +765,13 @@ namespace VB
                 }
 
 
-                // // Draw a single particle trajectory
-                // unsigned int pidx = static_cast<unsigned int>(R::runif(0., static_cast<double>(N_sample)));
-                // pidx = std::min(pidx, N_sample - 1);
-
                 if (sys_list[model.fsys] == SysEq::Evolution::identity)
                 {
-                    // for (unsigned int t = 0; t < y.n_elem; t++)
-                    // {
-                    //     Theta_stored.slice(i).col(t) = Theta_all_sample.slice(t).col(pidx);
-                    // }
-                    // psi_stored.col(i) = Theta_stored.slice(i).col(y.n_elem - 1);
-
                     psi_stored.col(i) = Theta_sample.col(y.n_elem - 1);
                     Theta_stored.slice(i) = Theta_sample;
                 }
                 else
                 {
-                    // for (unsigned int t = 0; t < y.n_elem; t++)
-                    // {
-                    //     psi_stored.at(t, i) = Theta_all_sample.at(0, pidx, t);
-                    // }
-
                     psi_stored.col(i) = arma::vectorise(Theta_sample.row(0));
                 }
 
