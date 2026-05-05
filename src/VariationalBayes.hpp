@@ -765,9 +765,9 @@ namespace VB
                 }
 
 
-                // Draw a single particle trajectory
-                unsigned int pidx = static_cast<unsigned int>(R::runif(0., static_cast<double>(N_sample)));
-                pidx = std::min(pidx, N_sample - 1);
+                // // Draw a single particle trajectory
+                // unsigned int pidx = static_cast<unsigned int>(R::runif(0., static_cast<double>(N_sample)));
+                // pidx = std::min(pidx, N_sample - 1);
 
                 if (sys_list[model.fsys] == SysEq::Evolution::identity)
                 {
@@ -777,7 +777,7 @@ namespace VB
                     // }
                     // psi_stored.col(i) = Theta_stored.slice(i).col(y.n_elem - 1);
 
-                    psi_stored.col(i) = Theta.col(y.n_elem - 1);
+                    psi_stored.col(i) = Theta_sample.col(y.n_elem - 1);
                     Theta_stored.slice(i) = Theta_sample;
                 }
                 else
