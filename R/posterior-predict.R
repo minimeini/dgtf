@@ -161,25 +161,36 @@ print.summary.dgtf_ppc <- function(x, digits = 3L, ...) {
 
 #' Out-of-sample forecasts from a DGTF fit
 #'
-#' \eqn{k}-step-ahead posterior predictive forecasts. Can also score
-#' forecasts against held-out true values when supplied.
+#' \eqn{h}-step-ahead posterior predictive forecasts, optionally
+#' scored against held-out future observations.
 #'
 #' @param object A `dgtf_fit`.
 #' @param h Forecast horizon (positive integer).
-#' @param nrep Number of replicate draws per posterior sample.
+#' @param nrep Number of replicate draws per posterior sample. The
+#'   total number of forecast draws is `nrep * <number of posterior samples>`.
 #' @param ypred_true Optional numeric vector of held-out future
-#'   observations of length `h`. When supplied, the returned list
+#'   observations (length `>= h`). When supplied, scoring metrics
+#'   (`coverage`, `chi`, `crps`) are computed against the last `h`
+#'   elements (or the last single value when `only_last = TRUE`).
 #'   includes per-step coverage and error metrics.
-#' @param only_last If `TRUE`, only the final `h`-step-ahead
-#'   prediction is evaluated (skips intermediate horizons).
-#' @param return_samples If `TRUE`, returns the full
-#'   `(ntime + h + 1) x nrep x nsample` cube of posterior predictive
-#'   draws. Otherwise just summaries (median + 95% CI).
+#' @param only_last If `TRUE`, only the `h`-step-ahead prediction is
+#'   reported (intermediate horizons are skipped).
+#' @param return_samples If `TRUE`, retains the full posterior
+#'   predictive forecast draws in `samples`.
 #' @param ... Unused.
 #'
-#' @return A list with components produced by [`dgtf_forecast()`]:
-#'   typically `ymean`, `yvar`, posterior predictive bands, and,
-#'   when `ypred_true` is supplied, scoring tables.
+#' @return An object of class `dgtf_forecast` (a list):
+#'   * `quantiles` — numeric matrix with columns `lower`, `median`,
+#'     `upper` at the 95% level. Has `h` rows by default, or `1` row
+#'     when `only_last = TRUE`.
+#'   * `level` — credible-interval level (currently fixed at `0.95`).
+#'   * `horizon` — the requested forecast horizon `h`.
+#'   * `only_last`, `nsample` — flags / total forecast-draw count.
+#'   * `samples` — matrix of posterior predictive draws (only when
+#'     `return_samples = TRUE`).
+#'   * `ypred_true` — supplied truth vector (when given).
+#'   * `coverage`, `chi`, `crps` — scoring metrics (when `ypred_true`
+#'     is supplied).
 #'
 #' @export
 #' @examples
@@ -187,6 +198,8 @@ print.summary.dgtf_ppc <- function(x, digits = 3L, ...) {
 #' fit <- dgtf(sim$y[1:180], mod, prior, method = "hva")
 #' fc  <- dgtf_forecast_fit(fit, h = 20, nrep = 200,
 #'                          ypred_true = sim$y[181:200])
+#' fc
+#' summary(fc)
 #' }
 dgtf_forecast_fit <- function(object,
                               h               = 1L,
@@ -197,18 +210,165 @@ dgtf_forecast_fit <- function(object,
                               ...) {
     if (!inherits(object, "dgtf_fit"))
         stop("`object` must be a `dgtf_fit`.", call. = FALSE)
-    if (h < 1L)
+    if (!is.numeric(h) || length(h) != 1L || h < 1L)
         stop("`h` must be a positive integer.", call. = FALSE)
+    if (!is.numeric(nrep) || length(nrep) != 1L || nrep < 1L)
+        stop("`nrep` must be a positive integer.", call. = FALSE)
+    if (!is.null(ypred_true)) {
+        ypred_true <- as.numeric(ypred_true)
+        needed <- if (isTRUE(only_last)) 1L else as.integer(h)
+        if (length(ypred_true) < needed) {
+            stop(sprintf("`ypred_true` must have at least %d element%s.",
+                         needed, if (needed == 1L) "" else "s"), call. = FALSE)
+        }
+    }
 
-    dgtf_forecast(
-        output                = object$fit,
-        model_settings        = as_settings(object$model),
-        y                     = as.numeric(object$y),
-        nrep                  = as.integer(nrep),
-        k                     = as.integer(h),
-        ypred_true            = if (is.null(ypred_true)) NULL
-                                else as.numeric(ypred_true),
+    raw <- dgtf_forecast(
+        output                 = object$fit,
+        model_settings         = as_settings(object$model),
+        y                      = as.numeric(object$y),
+        nrep                   = as.integer(nrep),
+        k                      = as.integer(h),
+        ypred_true             = ypred_true,
         only_evaluate_last_one = isTRUE(only_last),
-        return_all_samples    = isTRUE(return_samples)
+        return_all_samples     = isTRUE(return_samples)
     )
+
+    nsamp_post <- object$control$nsample %||% object$control$n_sample
+    nsample <- if (is.null(nsamp_post)) NA_integer_
+               else as.integer(nrep) * as.integer(nsamp_post)
+
+    quantiles <- raw$yqt
+    colnames(quantiles) <- c("lower", "median", "upper")
+    out <- list(
+        quantiles = quantiles,
+        level     = 0.95,
+        horizon   = as.integer(h),
+        only_last = isTRUE(only_last),
+        nsample   = nsample
+    )
+    if (isTRUE(return_samples) && !is.null(raw$ypred_samples))
+        out$samples <- raw$ypred_samples
+    if (!is.null(raw$ypred_true)) {
+        out$ypred_true <- as.numeric(raw$ypred_true)
+        out$coverage   <- as.numeric(raw$coverage)
+        out$chi        <- as.numeric(raw$chi)
+        out$crps       <- as.numeric(raw$crps)
+    }
+
+    class(out) <- c("dgtf_forecast", "list")
+    out
+}
+
+#' @export
+print.dgtf_forecast <- function(x, digits = 3L, ...) {
+    cat(sprintf("<dgtf forecast: h = %d, level = %.0f%%>\n",
+                x$horizon, 100 * x$level))
+    if (isTRUE(x$only_last))
+        cat("(only the final step is reported)\n")
+    if (!is.null(x$nsample) && !is.na(x$nsample))
+        cat(sprintf("Forecast draws : %s\n",
+                    format(x$nsample, big.mark = ",")))
+
+    q <- x$quantiles
+    has_truth <- !is.null(x$ypred_true)
+    step_ix <- if (isTRUE(x$only_last)) x$horizon else seq_len(nrow(q))
+
+    df <- data.frame(
+        step   = step_ix,
+        lower  = formatC(q[, "lower"],  digits = digits, format = "g"),
+        median = formatC(q[, "median"], digits = digits, format = "g"),
+        upper  = formatC(q[, "upper"],  digits = digits, format = "g"),
+        stringsAsFactors = FALSE
+    )
+    if (has_truth) {
+        df$truth <- formatC(x$ypred_true, digits = digits, format = "g")
+        df$hit   <- ifelse(x$ypred_true >= q[, "lower"] &
+                           x$ypred_true <= q[, "upper"], "*", "")
+    }
+
+    cat("\nForecast:\n")
+    print(df, row.names = FALSE)
+
+    if (has_truth) {
+        cat("\nScoring (vs ypred_true):\n")
+        rows <- list(
+            c("coverage", x$coverage),
+            c("chi-sq",   x$chi),
+            c("CRPS",     x$crps)
+        )
+        rows <- Filter(function(r)
+            !is.null(r[[2]]) && is.finite(r[[2]]), rows)
+        for (r in rows)
+            cat(sprintf("  %-9s : %s\n", r[[1]],
+                        formatC(as.numeric(r[[2]]), digits = digits,
+                                format = "g")))
+    }
+    invisible(x)
+}
+
+#' @export
+summary.dgtf_forecast <- function(object, ...) {
+    rows <- list()
+    if (!is.null(object$coverage))
+        rows[[length(rows) + 1L]] <- list(
+            metric = "coverage",   value = object$coverage,
+            level_applies = TRUE)
+    if (!is.null(object$chi))
+        rows[[length(rows) + 1L]] <- list(
+            metric = "chi-square", value = object$chi,
+            level_applies = FALSE)
+    if (!is.null(object$crps))
+        rows[[length(rows) + 1L]] <- list(
+            metric = "CRPS",       value = object$crps,
+            level_applies = FALSE)
+
+    metrics <- if (length(rows)) {
+        nominal <- vapply(rows, function(r)
+            if (r$level_applies) object$level else NA_real_, numeric(1))
+        data.frame(
+            metric        = vapply(rows, `[[`, character(1), "metric"),
+            value         = vapply(rows, `[[`, numeric(1),   "value"),
+            nominal_level = nominal,
+            row.names     = NULL,
+            stringsAsFactors = FALSE
+        )
+    } else NULL
+
+    out <- list(
+        horizon    = object$horizon,
+        only_last  = object$only_last,
+        level      = object$level,
+        nsample    = object$nsample,
+        quantiles  = object$quantiles,
+        ypred_true = object$ypred_true,
+        metrics    = metrics
+    )
+    class(out) <- c("summary.dgtf_forecast", "list")
+    out
+}
+
+
+#' @export
+print.summary.dgtf_forecast <- function(x, digits = 3L, ...) {
+    cat(sprintf("<dgtf forecast summary: h = %d, level = %.0f%%>\n",
+                x$horizon, 100 * x$level))
+    if (!is.null(x$nsample) && !is.na(x$nsample))
+        cat(sprintf("Forecast draws : %s\n",
+                    format(x$nsample, big.mark = ",")))
+    if (isTRUE(x$only_last))
+        cat("Only the final step is reported.\n")
+
+    if (!is.null(x$metrics)) {
+        cat("\nScoring (vs ypred_true):\n")
+        m <- x$metrics
+        m$value         <- formatC(m$value, digits = digits, format = "g")
+        m$nominal_level <- ifelse(is.na(m$nominal_level), "",
+                                  formatC(m$nominal_level, digits = 2,
+                                          format = "f"))
+        print(m, row.names = FALSE)
+    } else {
+        cat("\nNo `ypred_true` was supplied; no scoring metrics.\n")
+    }
+    invisible(x)
 }
