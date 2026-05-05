@@ -161,7 +161,7 @@ logLik.dgtf_fit <- function(object, ...) {
 #'   independent fits and call `rhat(list(fit1, fit2, ...))`.
 #' @export
 #' @export
-summary.dgtf_fit <- function(object, ...) {
+summary.dgtf_fit <- function(object, truth = NULL, ...) {
     f       <- object$fit
     method  <- object$method
     engine  <- object$control$method
@@ -193,20 +193,35 @@ summary.dgtf_fit <- function(object, ...) {
                 )
             })
         }
-        # if (requireNamespace("posterior", quietly = TRUE)) {
-        #     ds <- tryCatch(
-        #         posterior::summarise_draws(
-        #             posterior::as_draws_matrix(dm),
-        #             "ess_bulk", "ess_tail", "rhat"),
-        #         error = function(e) NULL)
-        #     if (!is.null(ds)) {
-        #         idx <- match(param_table$parameter, ds$variable)
-        #         param_table$ess_bulk <- ds$ess_bulk[idx]
-        #         param_table$ess_tail <- ds$ess_tail[idx]
-        #         param_table$rhat     <- ds$rhat[idx]
-        #     }
-        # }
-    }
+
+        # Truth-based recovery columns (simulation studies).
+        if (!is.null(truth)) {
+            rec <- tryCatch(
+                param_recovery(object, truth, level = 0.95),
+                error = function(e) {
+                    warning("param_recovery() failed: ", conditionMessage(e),
+                            call. = FALSE)
+                    NULL
+                })
+            if (!is.null(rec) && nrow(rec) > 0L) {
+                ix <- match(param_table$parameter, rec$parameter)
+                param_table$truth    <- rec$truth[ix]
+                param_table$bias     <- rec$bias[ix]
+                param_table$mae      <- rec$mae[ix]
+                param_table$rmse     <- rec$rmse[ix]
+                param_table$crps     <- rec$crps[ix]
+                param_table$coverage <- rec$coverage[ix]
+                # Move `truth` next to `parameter` for readability.
+                param_table <- param_table[, c(
+                    "parameter", "truth", "mean", "median", "sd",
+                    "q025", "q975",
+                    setdiff(names(param_table),
+                            c("parameter","truth","mean","median","sd",
+                              "q025","q975"))
+                )]
+            }
+        }
+    } # param_table
 
     # Latent-state summary (post-link R_t median band).
     state_summary <- NULL
@@ -359,6 +374,10 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
                 formatC(round(pt[[nm]]), format = "d", big.mark = ",")
             } else if (nm == "rhat") {
                 formatC(pt[[nm]], digits = 3L, format = "f")
+            } else if (nm == "coverage") {
+                ifelse(is.na(pt[[nm]]), "",
+                    ifelse(pt[[nm]], "yes", "no")
+                )
             } else {
                 formatC(pt[[nm]], digits = digits, format = "g")
             }

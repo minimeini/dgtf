@@ -43,7 +43,7 @@ mod <- dgtf_model(
   gain        = gain_softplus(),
   lag         = lag_lognormal(meanlog = 1.386262, sdlog = 0.3226017, window = 30),
   err         = err_gaussian(W = 0.01),
-  seasonality = seas_period(2, init = 1:2),
+  seasonality = seas_period(1, init = 2),
   zi          = FALSE
 )
 mod
@@ -90,34 +90,38 @@ prior <- dgtf_prior(
 
 ```{r infer}
 fit <- dgtf(
-  y       = c(sim_hawkes$y),
+  y       = c(sim$y),
   model   = mod,
   prior   = prior,
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-summary(fit)
+summary(fit, truth = list(
+  W = sim$model$err$params$var, 
+  rho = sim$model$obs_init[2],
+  par1 = sim$model$lag$params$par1,
+  par2 = sim$model$lag$params$par2))
 ```
 
 
 # 4. Inspect
 
 ```{r}
-plot(fit, what = "Rt", truth = log1p(exp(sim_hawkes$psi)))
+plot(fit, what = "Rt", truth = log1p(exp(sim$psi)))
 plot(fit, what = "W")
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
 ppc <- posterior_predict(fit, nrep = 100,
-                         Rt = log1p(exp(c(sim_hawkes$psi))))   # truth in a sim study
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
 summary(ppc)
-plot(ppc, what = "yhat", truth = c(sim_hawkes$y), main = "Posterior predictive check")
+plot(ppc, what = "yhat", truth = c(sim$y), main = "Posterior predictive check")
 ```
 
 ```{r}
 fc = dgtf_forecast_fit(fit, h = 5)
-summary(fc)
+print(fc)
 ```
 
 # 5. Switch the inference method
@@ -126,7 +130,7 @@ The `model` and `prior` objects are reusable across methods — only the
 control changes:
 
 ```{r switch-method, eval = FALSE}
-fit_mcmc <- dgtf(sim_hawkes$y, mod, prior,
+fit_mcmc <- dgtf(sim$y, mod, prior,
                  method  = "mcmc",
                  control = mcmc_control(
                   iter = 5000, 
@@ -135,12 +139,16 @@ fit_mcmc <- dgtf(sim_hawkes$y, mod, prior,
                   epsilon = 0.005, 
                   L = 50))
 
-print(fit_mcmc$fit$hmc$mass_matrix)
-summary(fit_mcmc)
+summary(fit_mcmc, truth = list(
+  W = sim$model$err$params$var, 
+  rho = sim$model$obs_init[2],
+  par1 = sim$model$lag$params$par1,
+  par2 = sim$model$lag$params$par2))
+
 ```
 
 ```{r}
-plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim_hawkes$psi)))
+plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
 plot(fit_mcmc, what = "W", truth = 0.01, type = "trace")
 plot(fit_mcmc, what = "W", truth = 0.01, type = "hist")
 
@@ -153,21 +161,26 @@ plot(fit_mcmc, what = "par2", truth = 0.3226017, type = "hist")
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
 ppc_mcmc <- posterior_predict(fit_mcmc, nrep = 100,
-                         Rt = log1p(exp(c(sim_hawkes$psi))))   # truth in a sim study
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
 summary(ppc_mcmc)
-plot(ppc_mcmc, what = "yhat", truth = c(sim_hawkes$y), main = "Posterior predictive check")
+plot(ppc_mcmc, what = "yhat", truth = c(sim$y), main = "Posterior predictive check")
 ```
 
 ```{r}
 dgtf_compare_plot(
+    list(HVA = ppc, MCMC = ppc_mcmc),
+    what = "yhat"
+)
+
+dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = log1p(exp(sim_hawkes$psi))),
+         True = log1p(exp(sim$psi))),
     what = "Rt"
 )
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = c(1, 2)),
+         True = 2),
     what = "seas"
 )
 
