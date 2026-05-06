@@ -8,14 +8,18 @@
 
 
 .ts_targets <- c("Rt", "psi", "yhat")
+.diag_targets <- c("marglik")
 
 # Soft replacement for match.arg(): time-series targets are an enum, but
-# any other single string is treated as a static-parameter name and
-# validated downstream against `.dgtf_static_draws(fit)$inferred`.
+# diagnostic targets (e.g. "marglik") have their own dispatch path, and
+# any other single string is treated as a static-parameter name (validated
+# downstream against `.dgtf_static_draws(fit)$inferred`).
 .what_kind <- function(what) {
     if (length(what) != 1L || !is.character(what))
         stop("`what` must be a single string.", call. = FALSE)
-    if (what %in% .ts_targets) "ts" else "param"
+    if (what %in% .ts_targets)   return("ts")
+    if (what %in% .diag_targets) return("diag")
+    "param"
 }
 
 
@@ -538,6 +542,129 @@
                              legend.position = legend.position, ...)
 }
 
+# Build a marglik convergence plot for a single dgtf_fit.
+#
+# The HVA marglik trace is heavy-tailed (occasional large outlier
+# iterations from degenerate SMC particle weights at moving variational
+# parameters). All visual summaries use robust estimators so the
+# outliers don't drown the convergence signal.
+#
+# Layers (bottom -> top):
+#   1. Faint raw per-iter trace                                (alpha = alpha_raw)
+#   2. +/- 1 rolling-MAD ribbon around the smoothed line       (if show_band)
+#   3. Bold rolling-median line (window k)
+#   4. Dashed vertical line at the auto-detected stabilization (if any)
+#   5. Dotted vertical line at the last large spike            (if any)
+#
+# `window` overrides the auto window length k = max(50, n/20).
+# `y_focus` clips the y-axis to the bulk so a handful of outlier
+# iterations don't render the convergence line invisible. Outliers
+# remain plotted in the raw layer; they just exit the plot frame.
+.plot_dgtf_marglik <- function(x,
+                               window     = NULL,
+                               show_band  = TRUE,
+                               alpha_raw  = 0.25,
+                               y_focus    = TRUE,
+                               y_focus_k  = 6,
+                               xlab       = "Iteration",
+                               ylab       = NULL,
+                               main       = NULL,
+                               theme      = ggplot2::theme_minimal()) {
+    ml <- x$fit$marglik
+    if (is.null(ml))
+        stop("No `marglik` trace found in this fit. Convergence plots ",
+             "are only available for HVA fits.", call. = FALSE)
+    ml <- as.numeric(ml)
+    ml[!is.finite(ml)] <- NA_real_
+    n  <- length(ml)
+    if (n < 5L)
+        stop("`marglik` trace has fewer than 5 points; nothing to plot.",
+             call. = FALSE)
+
+    # runmed() requires odd window length.
+    k <- if (is.null(window)) max(50L, n %/% 20L) else as.integer(window)
+    k <- min(k, max(3L, n))
+    if (k %% 2L == 0L) k <- k + 1L
+
+    # runmed() requires finite input; impute the global median for the
+    # smoother pass only, leaving raw NAs in the displayed line.
+    ml_imp <- ml
+    if (anyNA(ml_imp))
+        ml_imp[is.na(ml_imp)] <- stats::median(ml, na.rm = TRUE)
+
+    # Rolling median: robust central-tendency line.
+    smth <- as.numeric(stats::runmed(ml_imp, k = k, endrule = "median"))
+
+    # Rolling MAD as a robust noise envelope. Two-pass:
+    #   abs_dev   = |x - rolling_median|
+    #   mad_band  = 1.4826 * rolling_median(abs_dev)
+    # The 1.4826 constant matches stats::mad()'s default and makes the
+    # ribbon visually comparable to a +/- 1 SD band under Gaussian
+    # noise. Computed once and reused if y_focus needs the same scale.
+    sdv <- if (isTRUE(show_band) || isTRUE(y_focus)) {
+        abs_dev <- abs(ml_imp - smth)
+        1.4826 * as.numeric(stats::runmed(abs_dev, k = k,
+                                          endrule = "median"))
+    } else NULL
+
+    cv <- .dgtf_marglik_convergence(ml)
+
+    df <- data.frame(
+        iter     = seq_len(n),
+        marglik  = ml,
+        smoothed = smth,
+        lower    = if (!is.null(sdv)) smth - sdv else NA_real_,
+        upper    = if (!is.null(sdv)) smth + sdv else NA_real_
+    )
+
+    plt <- ggplot2::ggplot(df, ggplot2::aes(x = iter)) +
+        ggplot2::geom_line(ggplot2::aes(y = marglik),
+                           alpha = alpha_raw, na.rm = TRUE)
+
+    if (isTRUE(show_band)) {
+        plt <- plt + ggplot2::geom_ribbon(
+            ggplot2::aes(ymin = lower, ymax = upper),
+            alpha = 0.15, na.rm = TRUE)
+    }
+
+    plt <- plt + ggplot2::geom_line(
+        ggplot2::aes(y = smoothed),
+        linewidth = 0.8, na.rm = TRUE)
+
+    if (!is.null(cv) && !is.na(cv$stabilized_iter)) {
+        plt <- plt + ggplot2::geom_vline(
+            xintercept = cv$stabilized_iter,
+            linetype = "dashed", alpha = 0.6)
+    }
+    if (!is.null(cv) && !is.na(cv$last_spike_iter) &&
+        # Avoid drawing a second line right on top of the first one.
+        (is.na(cv$stabilized_iter) ||
+         abs(cv$last_spike_iter - cv$stabilized_iter) > max(5L, cv$roll_win %/% 5L))) {
+        plt <- plt + ggplot2::geom_vline(
+            xintercept = cv$last_spike_iter,
+            linetype = "dotted", alpha = 0.5)
+    }
+
+    # Y-axis clipping. Use coord_cartesian so points outside the limits
+    # are still drawn (lines exit the panel) rather than dropped.
+    if (isTRUE(y_focus) && !is.null(sdv)) {
+        y_lo <- min(smth - y_focus_k * sdv, na.rm = TRUE)
+        y_hi <- max(smth + y_focus_k * sdv, na.rm = TRUE)
+        if (is.finite(y_lo) && is.finite(y_hi) && y_lo < y_hi)
+            plt <- plt + ggplot2::coord_cartesian(ylim = c(y_lo, y_hi))
+    }
+
+    plt +
+        ggplot2::labs(
+            x     = xlab,
+            y     = ylab %||%
+                    expression("log " * hat(p)(y * " | " * gamma) *
+                               " (per-iter SMC estimate)"),
+            title = main %||% sprintf(
+                "HVA marglik trace (rolling median, window = %d)", k)) +
+        theme
+}
+
 #' @export
 plot.dgtf_fit <- function(x,
                           what  = "Rt",
@@ -556,6 +683,16 @@ plot.dgtf_fit <- function(x,
     kind <- .what_kind(what)
     if (kind == "param") {
         return(.plot_dgtf_param_single(x, what, truth = truth, type = type, ...))
+    }
+    if (kind == "diag" && what == "marglik") {
+        return(.plot_dgtf_marglik(
+            x,
+            xlab  = if (identical(xlab, "Time")) "Iteration" else xlab,
+            ylab  = ylab,
+            main  = main,
+            theme = theme,
+            ...
+        ))
     }
 
     if (type != "hist") {

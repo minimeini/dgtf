@@ -107,6 +107,7 @@ summary(fit, truth = list(
 # 4. Inspect
 
 ```{r}
+plot(fit, what = "marglik")
 plot(fit, what = "Rt", truth = log1p(exp(sim$psi)))
 plot(fit, what = "W")
 ```

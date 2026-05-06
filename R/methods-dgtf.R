@@ -52,6 +52,137 @@
     )
 }
 
+# Internal: scale-free convergence diagnostics for an HVA marglik trace.
+#
+# `ml` is the per-iteration SMC log-marginal estimate (`fit$marglik`).
+# It is noisy by construction (re-sampled SMC + moving variational
+# parameters), so all summaries use windowed means rather than single-
+# iteration values.
+#
+# Returns a list (or NULL if `ml` has fewer than 20 points).
+#   iterations      : trace length
+#   tail_mean       : mean over the last `tail_frac` fraction of iters
+#   tail_sd         : sd over the same window
+#   head_mean       : mean over the first `tail_frac` fraction of iters
+#   total_improve   : tail_mean - head_mean
+#   tail_slope_norm : OLS slope over the last 25% of iters, divided by
+#                     diff(range(ml)). Scale-free; |.| < ~1e-4 means
+#                     "no residual drift".
+#   plateau_iter    : first iter where rolling SD over `roll_win` falls
+#                     below 1% of range(ml). NA if never.
+#   tail_window     : window length used for tail/head means
+#   roll_win        : rolling-SD window length used for plateau search
+.dgtf_marglik_convergence <- function(ml,
+                                      tail_frac = 0.05,
+                                      spike_k = 5,
+                                      roll_win = NULL) {
+    ml <- as.numeric(ml)
+    ml <- ml[is.finite(ml)]
+    n <- length(ml)
+    if (n < 20L) {
+        return(NULL)
+    }
+
+    win_tail <- max(20L, ceiling(tail_frac * n))
+    tail_ix <- (n - win_tail + 1L):n
+
+    # Robust late-window summary. The SMC log-marginal estimator has
+    # heavy tails (a few iters can sit hundreds of units away from the
+    # bulk), so mean/sd are dominated by outliers. Median/MAD aren't.
+    tail_median <- stats::median(ml[tail_ix])
+    tail_mad <- stats::mad(ml[tail_ix])
+    if (!is.finite(tail_mad) || tail_mad == 0) tail_mad <- 1
+
+    # Early window: skip a 1% warmup, take next `win_tail` iters but
+    # cap at the first half of the trace.
+    head_skip <- min(
+        max(as.integer(ceiling(0.01 * n)), 5L),
+        n %/% 4L
+    )
+    head_end <- min(head_skip + win_tail, n %/% 2L)
+    head_ix <- (head_skip + 1L):head_end
+    early_median <- stats::median(ml[head_ix])
+    early_mad <- stats::mad(ml[head_ix])
+
+    # MAD ratio is the headline "did variance shrink?" diagnostic.    # < 0.5 = substantial; 0.5-0.8 = moderate; ≈ 1 = no stabilization.
+    mad_ratio <- if (is.finite(early_mad) && early_mad > 0) {
+        tail_mad / early_mad
+    } else {
+        NA_real_
+    }
+
+    # Tail drift over last 25%, expressed as a multiple of tail MAD.
+    # |tail_drift| < 1 means the trace drifted by less than one
+    # tail-noise-unit over the entire last quarter — essentially flat.
+    q_ix <- max(2L, ceiling(0.75 * n)):n
+    tslope <- if (length(q_ix) >= 2L) {
+        xx <- seq_along(q_ix)
+        unname(stats::coef(stats::lm(ml[q_ix] ~ xx))[2L])
+    } else {
+        NA_real_
+    }
+    tail_drift <- if (is.finite(tslope)) {
+        tslope * length(q_ix) / tail_mad
+    } else {
+        NA_real_
+    }
+
+    # Stabilization detector based on rolling MAD.
+    # Fire only when rolling-MAD drops below 2x the final MAD AND
+    # stays below for the rest of the trace (avoids matching a quiet
+    # window between two outlier clusters).
+    rwin <- if (is.null(roll_win)) {
+        max(50L, ceiling(0.05 * n))
+    } else {
+        as.integer(roll_win)
+    }
+    stabilized_iter <- NA_integer_
+    if (n >= rwin + 10L) {
+        thr <- 2 * tail_mad
+        roll_mad <- vapply(
+            seq_len(n - rwin + 1L),
+            function(i) stats::mad(ml[i:(i + rwin - 1L)]),
+            numeric(1)
+        )
+        below <- roll_mad < thr
+        all_below <- rev(cumprod(rev(below))) # 1 iff all later < thr
+        min_ok <- max(rwin, as.integer(ceiling(0.10 * n)))
+        cands <- which(all_below == 1L & seq_along(below) >= min_ok)
+        if (length(cands)) stabilized_iter <- as.integer(cands[1L])
+    }
+
+    # Tail-aware companion to `stabilized_iter`. MAD is robust enough
+    # that a single big spike inside a rolling window doesn't move it
+    # much, so `stabilized_iter` reports when the *bulk* settled. This
+    # variable instead reports the *latest* iter whose value is more
+    # than `spike_k` final-MADs away from `tail_median`. The two
+    # answer different questions:
+    #   stabilized_iter  -> variational parameters have settled
+    #   last_spike_iter  -> SMC estimator has stopped going degenerate
+    spike_thr <- spike_k * tail_mad
+    big_dev <- which(abs(ml - tail_median) > spike_thr)
+    last_spike_iter <- if (length(big_dev)) {
+        as.integer(max(big_dev))
+    } else {
+        NA_integer_
+    }
+
+    list(
+        iterations      = n,
+        tail_median     = tail_median,
+        tail_mad        = tail_mad,
+        early_median    = early_median,
+        early_mad       = early_mad,
+        mad_ratio       = mad_ratio,
+        tail_drift      = tail_drift,
+        stabilized_iter = stabilized_iter,
+        last_spike_iter = last_spike_iter,
+        spike_k         = spike_k,
+        tail_window     = as.integer(win_tail),
+        roll_win        = as.integer(rwin)
+    )
+}
+
 
 #' @export
 print.dgtf_fit <- function(x, ...) {
@@ -250,29 +381,11 @@ summary.dgtf_fit <- function(object, truth = NULL, ...) {
         zi          = isTRUE(m$zi)
     )
 
-    # # HVA-only convergence block (uses fit$marglik trace).
-    # convergence <- NULL
-    # if (identical(method, "hva") && !is.null(f$marglik)) {
-    #     ml <- as.numeric(f$marglik)
-    #     last_delta <- if (length(ml) >= 2L) abs(diff(utils::tail(ml, 2L))) else NA_real_
-    #     # Plateau: first index where 50-iter rolling SD < 1% * |median(ml)|.
-    #     plateau_iter <- NA_integer_
-    #     if (length(ml) >= 100L) {
-    #         win <- 50L
-    #         thr <- 0.01 * abs(stats::median(ml))
-    #         sds <- vapply(seq_len(length(ml) - win + 1L),
-    #                       function(i) stats::sd(ml[i:(i + win - 1L)]),
-    #                       numeric(1))
-    #         hit <- which(sds < thr)
-    #         if (length(hit)) plateau_iter <- hit[1L]
-    #     }
-    #     convergence <- list(
-    #         final_log_marglik = utils::tail(ml, 1L),
-    #         last_delta        = last_delta,
-    #         iterations        = length(ml),
-    #         plateau_iter      = plateau_iter
-    #     )
-    # }
+    # HVA-only convergence block (uses fit$marglik trace).
+    convergence <- NULL
+    if (identical(method, "hva") && !is.null(f$marglik)) {
+        convergence <- .dgtf_marglik_convergence(f$marglik)
+    }
 
     # MCMC-only HMC block (uses fit$hmc).
     hmc <- NULL
@@ -314,7 +427,7 @@ summary.dgtf_fit <- function(object, truth = NULL, ...) {
         model_components = model_components,
         param_table      = param_table,
         state_summary    = state_summary,
-        # convergence      = convergence,
+        convergence      = convergence,
         hmc              = hmc,
         disturbance_mh   = disturbance_mh,
         ppc              = attr(object, "ppc"),
@@ -393,18 +506,37 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
                     formatC(x$state_summary$iqr_median,      digits = digits, format = "g")))
     }
 
-    # if (!is.null(x$convergence)) {
-    #     c0 <- x$convergence
-    #     cat("\nConvergence (HVA)\n")
-    #     cat(sprintf("  final log p(y | gamma) : %s\n",
-    #                 formatC(c0$final_log_marglik, digits = digits, format = "g")))
-    #     cat(sprintf("  last delta             : %s\n",
-    #                 formatC(c0$last_delta,        digits = digits, format = "g")))
-    #     cat(sprintf("  iterations             : %d\n", c0$iterations))
-    #     cat(sprintf("  plateau detected       : %s\n",
-    #                 if (is.na(c0$plateau_iter)) "no"
-    #                 else sprintf("iter ~ %d", c0$plateau_iter)))
-    # }
+    if (!is.null(x$convergence)) {
+        c0 <- x$convergence
+        cat("\nConvergence (HVA marglik trace)\n")
+        cat(sprintf("  iterations             : %d\n", c0$iterations))
+        cat(sprintf("  late window (last %-3d) : median %s, MAD %s\n",
+                    c0$tail_window,
+                    formatC(c0$tail_median, digits = digits, format = "g"),
+                    formatC(c0$tail_mad,    digits = digits, format = "g")))
+        cat(sprintf("  early window           : median %s, MAD %s\n",
+                    formatC(c0$early_median, digits = digits, format = "g"),
+                    formatC(c0$early_mad,    digits = digits, format = "g")))
+        mr <- c0$mad_ratio
+        mr_tag <- if (!is.finite(mr)) ""
+                  else if (mr < 0.5) "  [substantial stabilization]"
+                  else if (mr < 0.8) "  [moderate stabilization]"
+                  else               "  [no clear stabilization]"
+        cat(sprintf("  MAD ratio (late/early) : %s%s\n",
+                    formatC(mr, digits = 3L, format = "g"), mr_tag))
+        flat <- is.finite(c0$tail_drift) && abs(c0$tail_drift) < 1
+        cat(sprintf("  tail drift (in MADs)   : %s%s\n",
+                    formatC(c0$tail_drift, digits = 2L, format = "f"),
+                    if (flat) "  [flat]" else ""))
+        cat(sprintf("  stabilized             : %s\n",
+                    if (is.na(c0$stabilized_iter)) "no"
+                    else sprintf("iter ~ %d  (rolling-MAD < 2x final MAD)",
+                                 c0$stabilized_iter)))
+        cat(sprintf("  last large spike       : %s\n",
+                    if (is.na(c0$last_spike_iter)) "none"
+                    else sprintf("iter ~ %d  (|deviation| > %dx final MAD)",
+                                 c0$last_spike_iter, c0$spike_k)))
+    }
 
     if (!is.null(x$hmc)) {
         h <- x$hmc
