@@ -24,7 +24,7 @@ library(dgtf)
 ```
 
 # 1. The DGTF model class
-
+`
 A **dynamic generalised transfer function (DGTF)** model has three pieces:
 
 - an *observation* distribution (Poisson, negative-binomial, ...),

@@ -420,6 +420,7 @@ namespace SMC
 
             std::map<std::string, SysEq::Evolution> sys_list = SysEq::sys_list;
             const unsigned int nT = y.n_elem - 1;
+            const double logN = std::log(static_cast<double>(N));
             arma::vec weights(N, arma::fill::ones);
             double log_cond_marginal = 0.0;
 
@@ -871,6 +872,8 @@ namespace SMC
                         // Normalize weights (stable)
                         const double wmax = weights.max();
                         weights = arma::exp(weights - wmax);
+                        log_cond_marginal += wmax + std::log(arma::accu(weights)) - logN;
+
 
                         if (final_resample_by_weights || t >= nT - 1)
                         {
