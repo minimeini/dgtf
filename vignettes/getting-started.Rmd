@@ -41,7 +41,7 @@ mod <- dgtf_model(
   link        = link_identity(),
   sys         = sys_shift(),
   gain        = gain_softplus(),
-  lag         = lag_lognormal(meanlog = 1.386262, sdlog = 0.3226017, window = 30),
+  lag         = lag_lognormal(meanlog = 1.386262, sigma2 = 0.3226017),
   err         = err_gaussian(W = 0.01),
   seasonality = seas_period(1, init = 2),
   zi          = FALSE
@@ -53,23 +53,13 @@ Most components also accept a string shortcut; the call above is
 equivalent to `dgtf_model(obs = "nbinom", link = "identity",
 sys = "shift", gain = "softplus", lag = lag_lognormal(...), ...)`.
 
-For the canonical models discussed in the manuscript there are
-one-line shortcuts:
-
-```{r canonical}
-dgtf_poisson_ar(p = 3)
-dgtf_hawkes()
-dgtf_koyck(kappa = 0.5)
-dgtf_distributed_lag(r = 2, kappa = 0.5)
-```
-
 # 2. Simulate
 
 ```{r simulate}
 sim <- dgtf_simulate_model(mod, ntime = 200, seed = 3269)
 print(sim)
-plot(sim, what = "y")
-plot(sim, what = "Rt")
+# plot(sim, what = "y")
+# plot(sim, what = "Rt")
 ```
 
 # 3. Inference
@@ -210,7 +200,87 @@ dgtf_compare_plot(
 )
 ```
 
-# 6. Swap a component to change the model
+# 6. Model comparison
+
+For the canonical models discussed in the manuscript there are
+one-line shortcuts:
+
+```{r canonical}
+m0_init <- dgtf_hawkes(
+  meanlog = runif(1, 1, 2),
+  sigma2 = runif(1, 0.1, 0.5),
+  W = 1 / rgamma(1, 10, 1),
+  seasonality = seas_period(1, init = runif(1, 0, 10))
+)
+m1_init = m0_init
+
+
+m2_prior <- dgtf_prior(
+  seasonality = normal(1, 1),
+  W           = inv_gamma(1, 1),
+  rho         = inv_gamma(1, 1),
+  lag         = list(par1 = dist_beta(1.5, 2))
+)
+
+m2_init = dgtf_distributed_lag(
+  r = 4, 
+  kappa = 0.395,
+  seasonality = seas_period(2, init = c(1, 2))
+)
+m2_fit <- dgtf(
+  y       = c(sim$y),
+  model   = m2_init,
+  prior   = m2_prior,
+  method  = "hva",
+  control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
+)
+m2_ppc <- posterior_predict(m2_fit, nrep = 100,
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+summary(m2_ppc)
+
+
+m3_prior <- dgtf_prior(
+  seasonality = normal(1, 1),
+  W = inv_gamma(1, 1),
+  rho = inv_gamma(1, 1)
+)
+m3_init = dgtf_nb_ar(
+  p = 3,
+  W = 1 / rgamma(1, 10, 1),
+  seasonality = seas_period(1, init = runif(1, 0, 10))
+)
+m3_fit <- dgtf(
+  y       = c(sim$y),
+  model   = m3_init,
+  prior   = m3_prior,
+  method  = "hva",
+  control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
+)
+m3_ppc <- posterior_predict(m3_fit, nrep = 100,
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+summary(m3_ppc)
+
+
+m4_prior <- dgtf_prior(
+  seasonality = normal(1, 1),
+  W = inv_gamma(1, 1)
+)
+m4_init  = dgtf_poisson_ar(
+  p = 5,
+  W = 1 / rgamma(1, 10, 1),
+  seasonality = seas_period(1, init = runif(1, 0, 10))
+)
+m4_fit <- dgtf(
+  y       = c(sim$y),
+  model   = m4_init,
+  prior   = m4_prior,
+  method  = "hva",
+  control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
+)
+```
+
+
+# 7. Swap a component to change the model
 
 The same data can be analysed under a different DGTF variant by
 substituting one component:

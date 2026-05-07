@@ -124,16 +124,31 @@ gain_logistic <- function() new_component("gain", "logistic")
 #' The discretised PMF that weights past observations in a sliding-window
 #' transfer function.
 #'
-#' - `lag_lognormal(meanlog, sdlog, window)`: discretised log-normal
-#'   (default for discretised Hawkes a la Koyama et al.).
-#' - `lag_nbinom(r, kappa, window)`: discretised negative-binomial
-#'   distribution (Solow form), with `r` the number of successes and
-#'   `kappa` the failure probability. Reduces to geometric when `r = 1`.
-#' - `lag_uniform(window)`: discrete uniform over the window.
+#' \describe{
+#'   \item{\code{lag_lognormal(meanlog, sigma2, window)}}{Discretised
+#'     log-normal distribution. \strong{Note:} \code{sigma2} is the
+#'     \emph{variance} on the log scale, i.e. \eqn{\sigma^2} where
+#'     \eqn{\log X \sim N(\mu, \sigma^2)}. This matches the C++ engine
+#'     and the CSDA paper. R's \code{dlnorm()} takes the standard
+#'     deviation \code{sdlog = sqrt(sigma2)}, so do not pass \code{sdlog}
+#'     directly.}
+#'   \item{\code{lag_nbinom(r, kappa, window)}}{Discretised
+#'     negative-binomial (Solow form), with \code{r} successes and
+#'     \code{kappa} failure probability. Reduces to geometric when
+#'     \code{r = 1}.}
+#'   \item{\code{lag_uniform(window)}}{Discrete uniform over the window
+#'     (used for AR models where each lag gets its own time-varying
+#'     coefficient).}
+#' }
 #'
-#' @param meanlog,sdlog Log-normal hyperparameters.
+#' @param meanlog Numeric. Log-normal mean parameter \eqn{\mu}.
+#' @param sigma2 Numeric. Log-normal \strong{variance} parameter
+#'   \eqn{\sigma^2} on the log scale. Default 0.32.
 #' @param r,kappa Negative-binomial hyperparameters.
-#' @param window Integer truncation length \eqn{L}.
+#' @param window Integer truncation length \eqn{L}. For lognormal and
+#'   nbinom lags the C++ engine auto-computes the truncation from the
+#'   99.5\% quantile; this parameter is stored as R-side metadata.
+#'   For uniform lags it sets the AR order \eqn{p}.
 #'
 #' @return A `dgtf_lag` component object.
 #' @name dgtf-lag
@@ -141,11 +156,11 @@ NULL
 
 #' @rdname dgtf-lag
 #' @export
-lag_lognormal <- function(meanlog = 1.386, sdlog = 0.323, window = 30L) {
-    if (sdlog <= 0) stop("`sdlog` must be positive.", call. = FALSE)
+lag_lognormal <- function(meanlog = 1.386, sigma2 = 0.32, window = 30L) {
+    if (sigma2 <= 0) stop("`sigma2` must be positive.", call. = FALSE)
     if (window < 1L) stop("`window` must be a positive integer.", call. = FALSE)
     new_component("lag", "lognorm",
-                  params = list(par1 = meanlog, par2 = sdlog),
+                  params = list(par1 = meanlog, par2 = sigma2),
                   window = as.integer(window))
 }
 

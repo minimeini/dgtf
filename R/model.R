@@ -157,7 +157,16 @@ as_settings <- function(model) UseMethod("as_settings")
 as_settings.dgtf_model <- function(model) {
     lag_params <- if (length(model$lag$params))
         unname(unlist(model$lag$params)) else numeric(0)
-
+ 
+    # AR models: C++ needs param$lag to be a vector of length p.
+    # lag_uniform stores params = list() with window = p separately.
+    if (identical(model$sys$type, "identity") &&
+        identical(model$lag$type, "uniform") &&
+        length(lag_params) == 0L) {
+        p <- model$lag$window %||% 1L
+        lag_params <- rep(0, p)
+    }
+ 
     list(
         model = list(
             obs_dist  = model$obs$type,
