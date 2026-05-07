@@ -212,7 +212,37 @@ m0_init <- dgtf_hawkes(
   W = 1 / rgamma(1, 10, 1),
   seasonality = seas_period(1, init = runif(1, 0, 10))
 )
-m1_init = m0_init
+
+m1_init = dgtf_hawkes(
+  meanlog = 1.386262,
+  sigma2 = 0.3226017,
+  W = 0.01,
+  seasonality = seas_period(1, init = 1)
+)
+set.seed(123)
+m1_fit <- dgtf(
+  y = c(sim$y),
+  model = m1_init,
+  prior = dgtf_prior(
+    seasonality = normal(1, 1),
+    rho = inv_gamma(1, 1),
+    lag         = list(par1 = normal(0, 1),
+                       par2 = inv_gamma(1, 1))
+  ),
+  method = "hva",
+  control = vb_control(
+    iter = 1000,
+    n_sample = 5000,
+    n_particle = 500,
+    use_discount = TRUE,
+    discount_factor = 0.9
+  )
+)
+plot(m1_fit, what = "Rt")
+
+m1_ppc <- posterior_predict(m1_fit, nrep = 100,
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+summary(m1_ppc)
 
 
 m2_prior <- dgtf_prior(
@@ -222,7 +252,7 @@ m2_prior <- dgtf_prior(
   lag         = list(par1 = dist_beta(1.5, 2))
 )
 
-m2_init = dgtf_distributed_lag(
+m2_init <- dgtf_distributed_lag(
   r = 4, 
   kappa = 0.395,
   seasonality = seas_period(2, init = c(1, 2))
@@ -244,7 +274,7 @@ m3_prior <- dgtf_prior(
   W = inv_gamma(1, 1),
   rho = inv_gamma(1, 1)
 )
-m3_init = dgtf_nb_ar(
+m3_init <- dgtf_nb_ar(
   p = 3,
   W = 1 / rgamma(1, 10, 1),
   seasonality = seas_period(1, init = runif(1, 0, 10))
@@ -265,9 +295,9 @@ m4_prior <- dgtf_prior(
   seasonality = normal(1, 1),
   W = inv_gamma(1, 1)
 )
-m4_init  = dgtf_poisson_ar(
+m4_init <- dgtf_poisson_ar(
   p = 5,
-  W = 1 / rgamma(1, 10, 1),
+  W = 0.001,
   seasonality = seas_period(1, init = runif(1, 0, 10))
 )
 m4_fit <- dgtf(
@@ -277,8 +307,34 @@ m4_fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
+m4_ppc <- posterior_predict(m4_fit, nrep = 100,
+                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+summary(m4_ppc)
+plot(m4_fit, what = "W")
+
 ```
 
+```{r}
+dgtf_compare_plot(
+    list(
+      M0 = ppc, 
+      M1 = m1_ppc,
+      M2 = m2_ppc,
+      M3 = m3_ppc,
+      M4 = m4_ppc,
+      True = c(sim$y)),
+    what = "yhat"
+)
+
+dgtf_compare_plot(
+    list(
+      M0 = fit, 
+      M1 = m1_fit,
+      M2 = m2_fit,
+      True = log1p(exp(c(sim$psi)))),
+    what = "Rt"
+)
+```
 
 # 7. Swap a component to change the model
 

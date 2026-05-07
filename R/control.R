@@ -164,25 +164,90 @@ control_to_method_settings <- function(control, prior, method, model) {
         opts[[nm]] <- control$extra[[nm]]
     }
  
-    # Convenience: how many static params will be inferred
+    # ---- Guard 1: discount factor + W are mutually exclusive ----------
+    #
+    # When use_discount = TRUE, W_t is computed adaptively as
+    #   W_t = (1/delta - 1) * G_t * C_{t-1} * G_t'
+    # There is no fixed W to infer. Inferring W alongside discount
+    # produces contradictory updates.
+    use_discount <- isTRUE(opts$use_discount)
+    if (use_discount && has_prior(prior, "W")) {
+        warning(
+            "Prior on W is ignored when `use_discount = TRUE`: the ",
+            "innovation variance is computed adaptively from the discount ",
+            "factor. Remove `W` from the prior specification.",
+            call. = FALSE
+        )
+    }
+ 
+    # ---- Guard 2: AR models have structural lag parameters ------------
+    #
+    # For AR models (lag = "uniform", sys = "identity"), par1 is the AR
+    # order and par2 is unused. Both are integers that set the state
+    # dimension nP. Inferring them changes nP mid-run, crashing the SMC.
+    lag_is_structural <- identical(model$lag$type, "uniform") ||
+                         identical(model$sys$type, "identity")
+ 
+    if (lag_is_structural && !is.null(prior$lag)) {
+        lag_requested <- !is.null(prior$lag$par1) || !is.null(prior$lag$par2)
+        if (lag_requested) {
+            warning(
+                "Lag priors are ignored for AR models: the lag parameters ",
+                "set the autoregressive order (a structural dimension), ",
+                "not continuous distributional parameters. ",
+                "Remove `lag` from the prior specification.",
+                call. = FALSE
+            )
+        }
+    }
+ 
+    # ---- Count inferred parameters ------------------------------------
     inferred <- character(0)
     if (has_prior(prior, "intercept"))   inferred <- c(inferred, "intercept")
     if (has_prior(prior, "seasonality")) inferred <- c(inferred, "seas")
-    if (has_prior(prior, "W"))           inferred <- c(inferred, "W")
+ 
+    # W: infer only if prior is set AND discount is not active
+    if (has_prior(prior, "W") && !use_discount) inferred <- c(inferred, "W")
+ 
     if (has_prior(prior, "rho"))         inferred <- c(inferred, "rho")
-    if (!is.null(prior$lag)) {
-        if (!is.null(prior$lag$par1)) inferred <- c(inferred, "par1")
-        if (!is.null(prior$lag$par2)) inferred <- c(inferred, "par2")
+ 
+    # Lag parameters: infer only if not structural
+    infer_par1 <- FALSE
+    infer_par2 <- FALSE
+    if (!lag_is_structural && !is.null(prior$lag)) {
+        if (!is.null(prior$lag$par1)) {
+            inferred <- c(inferred, "par1")
+            infer_par1 <- TRUE
+        }
+        if (!is.null(prior$lag$par2)) {
+            inferred <- c(inferred, "par2")
+            infer_par2 <- TRUE
+        }
     }
+ 
+    # Compute k (rank of variational factor matrix B)
     opts$k <- length(inferred)
+ 
+    # Seasonal period > 1 adds (period - 1) extra dimensions beyond
+    # the single "seas" slot already counted.
     if (("seas" %in% inferred) && model$seasonality$period > 1L)
         opts$k <- opts$k + model$seasonality$period - 2L
  
-    # Per-parameter prior blocks
-    update_block <- function(block_name, dist) {
+    # When both lag parameters are inferred jointly, they share a
+    # factor dimension in the variational family.
+    if (infer_par1 && infer_par2)
+        opts$k <- opts$k - 1L
+ 
+    opts$k <- max(opts$k, 1L)
+ 
+    # ---- Per-parameter prior blocks -----------------------------------
+    #
+    # MERGE into the engine defaults (which carry e.g. mh_sd) rather
+    # than replacing them entirely.
+    update_block <- function(block_name, dist, force_off = FALSE) {
         block <- opts[[block_name]]
         if (!is.list(block)) block <- list()
-        if (is.null(dist)) {
+        if (is.null(dist) || force_off) {
             block$infer <- FALSE
         } else {
             block$infer <- TRUE
@@ -193,43 +258,10 @@ control_to_method_settings <- function(control, prior, method, model) {
     }
  
     update_block("seas", prior$seasonality)
-    update_block("W",    prior$W)
+    update_block("W",    prior$W,    force_off = use_discount)
     update_block("rho",  prior$rho)
-    update_block("par1", prior$lag$par1)
-    update_block("par2", prior$lag$par2)
- 
-    # ---- NEW: Guard against inferring structural lag parameters ----
-    #
-    # For AR models (lag = "uniform"), par1 is the AR order and par2 is
-    # unused. Both are structural integers, not continuous parameters.
-    # Inferring them changes the state dimension nP mid-run, crashing
-    # the SMC filter.
-    #
-    # For models with sys = "identity" (AR) or lag = "uniform", force
-    # lag inference off and warn the user.
-    lag_is_structural <- identical(model$lag$type, "uniform") ||
-                         identical(model$sys$type, "identity")
- 
-    if (lag_is_structural && !is.null(prior$lag)) {
-        if (isTRUE(opts$par1$infer) || isTRUE(opts$par2$infer)) {
-            warning(
-                "Lag priors are ignored for AR models: the lag parameters ",
-                "set the autoregressive order (a structural dimension), ",
-                "not continuous distributional parameters. ",
-                "Remove `lag` from the prior specification.",
-                call. = FALSE
-            )
-            opts$par1$infer <- FALSE
-            opts$par2$infer <- FALSE
- 
-            # Recount inferred parameters
-            inferred <- setdiff(inferred, c("par1", "par2"))
-            opts$k <- length(inferred)
-            if (("seas" %in% inferred) && model$seasonality$period > 1L)
-                opts$k <- opts$k + model$seasonality$period - 2L
-        }
-    }
+    update_block("par1", prior$lag$par1, force_off = lag_is_structural)
+    update_block("par2", prior$lag$par2, force_off = lag_is_structural)
  
     opts
 }
-
