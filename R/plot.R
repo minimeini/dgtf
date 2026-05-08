@@ -778,3 +778,396 @@ plot.dgtf_ppc <- function(x, what = c("Rt", "yhat"),
                     legend.position = if (is.null(truth)) "none" else "right",
                     ylab = .default_ylab(what))
 }
+
+#' Plot a posterior-predictive forecast
+#'
+#' Time-series plot of the forecast quantile band (line + ribbon),
+#' with an optional truth overlay drawn as a dashed black line. This
+#' matches the convention of the other dgtf time-series plotting
+#' methods.
+#'
+#' Single-step forecasts (`only_last = TRUE` in the original
+#' [`dgtf_forecast_fit()`] call) are rendered as a point-and-interval
+#' instead of a line-and-ribbon, since there's only one (h, y) pair
+#' to show; the truth, if present, is drawn as a black "x" at the
+#' same time step.
+#'
+#' @param x A `dgtf_forecast`.
+#' @param truth Optional numeric vector of true future values to
+#'   overlay (same length convention as `ypred_true` in
+#'   [`dgtf_forecast_fit()`]: at least `horizon` entries for the full
+#'   trajectory, at least 1 for `only_last`). Defaults to
+#'   `x$ypred_true` if it was baked into the forecast object.
+#' @param time Optional numeric vector of length `horizon` giving the
+#'   x-axis values (e.g. real dates coerced to numeric). Defaults to
+#'   `seq_len(horizon)`.
+#' @param color Optional color for the forecast band (line + ribbon).
+#'   Defaults to black for a single-method forecast plot.
+#' @param alpha Ribbon transparency (default 0.5).
+#' @param xlab,ylab,main Axis / title labels. NULL falls back to
+#'   sensible defaults (`"Forecast step"` and `expression(hat(y))`).
+#' @param theme A ggplot2 theme.
+#' @param ... Unused.
+#'
+#' @return A `ggplot` object.
+#'
+#' @export
+plot.dgtf_forecast <- function(x,
+                               truth = NULL,
+                               time  = NULL,
+                               color = NULL,
+                               alpha = 0.5,
+                               xlab  = NULL,
+                               ylab  = NULL,
+                               main  = NULL,
+                               theme = ggplot2::theme_minimal(),
+                               ...) {
+    q <- x$quantiles
+    if (is.null(q) || nrow(q) == 0L)
+        stop("Forecast object has no quantiles to plot.", call. = FALSE)
+
+    h         <- nrow(q)
+    only_last <- isTRUE(x$only_last)
+
+    # x-axis values. only_last collapses to a single time step at
+    # x$horizon; otherwise step indices 1..h or user-supplied `time`.
+    x_time <- if (only_last) {
+        x$horizon
+    } else if (is.null(time)) {
+        seq_len(h)
+    } else {
+        if (length(time) != h)
+            stop(sprintf(
+                "`time` must have length %d (one entry per forecast step).",
+                h), call. = FALSE)
+        as.numeric(time)
+    }
+    xlab <- xlab %||% "Forecast step"
+    ylab <- ylab %||% expression(hat(y))
+
+    # Truth: explicit `truth` argument wins, otherwise fall back to
+    # the `ypred_true` baked into the forecast object (if any).
+    truth_vec <- truth %||% x$ypred_true
+    if (!is.null(truth_vec)) {
+        truth_vec <- as.numeric(truth_vec)
+        truth_vec <- if (only_last) {
+            utils::tail(truth_vec, 1L)
+        } else if (length(truth_vec) >= h) {
+            truth_vec[seq_len(h)]
+        } else {
+            stop(sprintf(
+                "`truth` has length %d but horizon is %d.",
+                length(truth_vec), h), call. = FALSE)
+        }
+    }
+
+    # Single-step path: pointrange + optional truth marker. The
+    # multi-step `.plot_dgtf_band()` machinery requires >= 2 points
+    # to draw a meaningful line / ribbon.
+    if (only_last || h == 1L) {
+        df <- data.frame(
+            time   = as.numeric(x_time),
+            lower  = as.numeric(q[, "lower"]),
+            median = as.numeric(q[, "median"]),
+            upper  = as.numeric(q[, "upper"]),
+            stringsAsFactors = FALSE
+        )
+        fc_color <- color %||% "black"
+        p <- ggplot2::ggplot(df, ggplot2::aes(x = time)) +
+            ggplot2::geom_pointrange(
+                ggplot2::aes(y = median, ymin = lower, ymax = upper),
+                color = fc_color, size = 0.6) +
+            theme +
+            ggplot2::labs(x = xlab, y = ylab, title = main)
+        if (!is.null(truth_vec)) {
+            p <- p + ggplot2::geom_point(
+                data = data.frame(time = as.numeric(x_time),
+                                  truth = truth_vec),
+                ggplot2::aes(y = truth),
+                shape = 4L, size = 3, stroke = 1.1,
+                color = "black")
+        }
+        return(p)
+    }
+
+    # Multi-step path: dispatch to the shared band plotter so the
+    # forecast looks like every other dgtf time-series plot. Truth
+    # rows whose `name` matches `.truth_pattern` ("^(true|truth)$")
+    # are auto-styled as a dashed black line by `.plot_dgtf_band()`.
+    band <- data.frame(
+        time       = as.numeric(x_time),
+        lower      = as.numeric(q[, "lower"]),
+        central    = as.numeric(q[, "median"]),
+        upper      = as.numeric(q[, "upper"]),
+        name       = "Forecast",
+        has_ribbon = TRUE,
+        stringsAsFactors = FALSE
+    )
+    if (!is.null(truth_vec)) {
+        band <- rbind(band, data.frame(
+            time       = as.numeric(x_time),
+            lower      = NA_real_,
+            central    = truth_vec,
+            upper      = NA_real_,
+            name       = "Truth",
+            has_ribbon = FALSE,
+            stringsAsFactors = FALSE
+        ))
+    }
+
+    .plot_dgtf_band(
+        band,
+        palette         = if (!is.null(color)) c(Forecast = color) else NULL,
+        alpha           = alpha,
+        xlab            = xlab,
+        ylab            = ylab,
+        main            = main,
+        theme           = theme,
+        legend.position = if (is.null(truth_vec)) "none" else "right",
+        legend.name     = NULL
+    )
+}
+
+#' In-sample fit + out-of-sample forecast in one plot
+#'
+#' Plots the posterior-predictive band for `y` over the in-sample
+#' window and, optionally, the forecast band for `y` over the
+#' out-of-sample window (from a `dgtf_forecast`), distinguished by
+#' colour. Truth values for either segment are overlaid as a single
+#' dashed black line spanning both windows.
+#'
+#' The in-sample band can come from either:
+#'   * a `dgtf_fit` -- its `attr(., "ppc")` is reused if present,
+#'     otherwise [`posterior_predict()`] is run on the fly. The
+#'     observed `y` is used as the in-sample truth by default.
+#'   * a `dgtf_ppc` -- used directly. No automatic in-sample truth
+#'    (the PPC object doesn't carry `y`); pass `truth_in` if you
+#'     want one.
+#'
+#' @param x Either a `dgtf_fit` or a `dgtf_ppc` (the in-sample band
+#'   provider).
+#' @param forecast Optional `dgtf_forecast` (from
+#'   [`dgtf_forecast_fit()`]). When `NULL`, only the in-sample band
+#'   is plotted.
+#' @param truth_in Optional numeric vector of length `length(fit$y)`
+#'   to overlay as the in-sample truth. `NULL` (default) auto-fills
+#'   with `fit$y`.
+#' @param truth_out Optional numeric vector of length
+#'   `forecast$horizon` to overlay as the out-of-sample truth. `NULL`
+#'   (default) auto-fills with `forecast$ypred_true` when present.
+#' @param show_truth If `FALSE`, suppress all truth overlays
+#'   regardless of `truth_in` / `truth_out`. Default `TRUE`.
+#' @param time_in,time_out Optional numeric vectors giving the x-axis
+#'   values for the two segments (e.g. real dates coerced to
+#'   numeric). Defaults: `0:(n-1)` for in-sample and
+#'   `n:(n+h-1)` for out-of-sample (with `n = length(fit$y)`,
+#'   `h = forecast$horizon`), so the two segments connect.
+#' @param level Credible-interval level used when the in-sample PPC
+#'   has to be computed on the fly (i.e. `attr(fit, "ppc")` is not
+#'   already attached).
+#' @param nrep Posterior-predictive replicate count for the
+#'   on-the-fly PPC.
+#' @param in_color,out_color Hex colours for the two bands. Default
+#'   to Okabe-Ito blue / vermillion for visual distinction.
+#' @param in_name,out_name Legend labels for the two bands.
+#' @param alpha Ribbon transparency (default 0.4).
+#' @param xlab,ylab,main Axis / title labels.
+#' @param theme A ggplot2 theme.
+#' @param ... Unused.
+#'
+#' @return A `ggplot` object.
+#'
+#' @examples
+#' \dontrun{
+#' fit <- dgtf(sim$y[1:180], mod, prior, method = "hva")
+#' fc  <- dgtf_forecast_fit(fit, h = 20, nrep = 200,
+#'                          ypred_true = sim$y[181:200])
+#'
+#' # In-sample band + forecast band + dashed truth across the gap.
+#' plot_dgtf_y(fit, fc)
+#'
+#' # In-sample only (forecast = NULL); equivalent to a yhat PPC plot
+#' # with the observed series overlaid.
+#' plot_dgtf_y(fit)
+#'
+#' # Real dates on the x-axis.
+#' plot_dgtf_y(fit, fc,
+#'             time_in  = as.numeric(date_seq[1:180]),
+#'             time_out = as.numeric(date_seq[181:200]),
+#'             xlab     = "Date")
+#' }
+#'
+#' @export
+plot_dgtf_y <- function(x,
+                        forecast   = NULL,
+                        truth_in   = NULL,
+                        truth_out  = NULL,
+                        show_truth = TRUE,
+                        time_in    = NULL,
+                        time_out   = NULL,
+                        level      = 0.95,
+                        nrep       = 100L,
+                        in_color   = "#0072B2",
+                        out_color  = "#D55E00",
+                        in_name    = "In-sample",
+                        out_name   = "Forecast",
+                        alpha      = 0.4,
+                        xlab       = "Time",
+                        ylab       = expression(y[t]),
+                        main       = NULL,
+                        theme      = ggplot2::theme_minimal(),
+                        ...) {
+    if (!is.null(forecast) && !inherits(forecast, "dgtf_forecast"))
+        stop("`forecast` must be a `dgtf_forecast` or NULL.",
+             call. = FALSE)
+
+    # 1. Resolve `x` to (ppc, optional fit). The fit, if available,
+    #    is consulted only to auto-fill `truth_in` from `fit$y` --
+    #    everything else flows from the PPC. This keeps the bare
+    #    `dgtf_ppc` input path fully self-contained.
+    fit <- NULL
+    if (inherits(x, "dgtf_fit")) {
+        fit <- x
+        ppc <- attr(fit, "ppc")
+        if (is.null(ppc) || !inherits(ppc, "dgtf_ppc") ||
+            is.null(ppc$yhat)) {
+            ppc <- posterior_predict(fit, nrep = nrep, level = level)
+        }
+    } else if (inherits(x, "dgtf_ppc")) {
+        ppc <- x
+    } else {
+        stop("`x` must be a `dgtf_fit` or a `dgtf_ppc` (got class: ",
+             paste(class(x), collapse = "/"), ").", call. = FALSE)
+    }
+
+    qm_in <- ppc$yhat
+    if (is.null(qm_in)) {
+        stop("PPC has no `yhat` field. Re-run `posterior_predict()` ",
+            "with `nrep > 0` (yhat is only populated when nrep > 0).",
+            call. = FALSE
+        )
+    }
+
+    n_in <- nrow(qm_in)
+    t_in <- if (is.null(time_in)) as.numeric(seq_len(n_in) - 1L)
+            else as.numeric(time_in)
+    if (length(t_in) != n_in)
+        stop(sprintf(
+            "`time_in` must have length %d (the in-sample series length).",
+            n_in), call. = FALSE)
+
+    band_in <- data.frame(
+        time       = t_in,
+        lower      = as.numeric(qm_in[, 1L]),
+        central    = as.numeric(qm_in[, 2L]),
+        upper      = as.numeric(qm_in[, 3L]),
+        name       = in_name,
+        has_ribbon = TRUE,
+        stringsAsFactors = FALSE
+    )
+
+    # 2. Forecast band (optional). Continue the x-axis from the end
+    #    of the in-sample window, using the in-sample step size as
+    #    the default increment so dates / integer indices both work.
+    band_out <- NULL
+    t_out    <- numeric(0)
+    h_out    <- 0L
+    if (!is.null(forecast)) {
+        qm_out <- forecast$quantiles
+        if (is.null(qm_out) || nrow(qm_out) == 0L)
+            stop("Forecast object has no quantiles.", call. = FALSE)
+        h_out <- nrow(qm_out)
+
+        if (is.null(time_out)) {
+            step  <- if (n_in >= 2L) t_in[n_in] - t_in[n_in - 1L] else 1
+            t_out <- t_in[n_in] + step * seq_len(h_out)
+        } else {
+            t_out <- as.numeric(time_out)
+            if (length(t_out) != h_out)
+                stop(sprintf(
+                    "`time_out` must have length %d (the forecast horizon).",
+                    h_out), call. = FALSE)
+        }
+
+        band_out <- data.frame(
+            time       = t_out,
+            lower      = as.numeric(qm_out[, "lower"]),
+            central    = as.numeric(qm_out[, "median"]),
+            upper      = as.numeric(qm_out[, "upper"]),
+            name       = out_name,
+            has_ribbon = TRUE,
+            stringsAsFactors = FALSE
+        )
+    }
+
+    # 3. Truth overlays. Auto-fill defaults; both segments share the
+    #    name "Truth" so `.plot_dgtf_band()` draws a single dashed
+    #    black line connecting them (visually showing the full
+    #    observed-then-future trajectory across the cut).
+    if (isTRUE(show_truth)) {
+         if (is.null(truth_in) && !is.null(fit))
+            truth_in <- as.numeric(fit$y)
+        if (is.null(truth_out) && !is.null(forecast))
+            truth_out <- forecast$ypred_true
+    } else {
+        truth_in  <- NULL
+        truth_out <- NULL
+    }
+
+    truth_band <- NULL
+    if (!is.null(truth_in)) {
+        truth_in <- as.numeric(truth_in)
+        if (length(truth_in) != n_in)
+            stop(sprintf(
+                "`truth_in` length %d does not match in-sample length %d.",
+                length(truth_in), n_in), call. = FALSE)
+        truth_band <- data.frame(
+            time       = t_in,
+            lower      = NA_real_,
+            central    = truth_in,
+            upper      = NA_real_,
+            name       = "Truth",
+            has_ribbon = FALSE,
+            stringsAsFactors = FALSE)
+    }
+    if (!is.null(truth_out) && length(truth_out) > 0L) {
+        truth_out <- as.numeric(truth_out)
+        if (length(truth_out) < h_out)
+            stop(sprintf(
+                "`truth_out` length %d is shorter than horizon %d.",
+                length(truth_out), h_out), call. = FALSE)
+        truth_out <- truth_out[seq_len(h_out)]
+        truth_out_df <- data.frame(
+            time       = t_out,
+            lower      = NA_real_,
+            central    = truth_out,
+            upper      = NA_real_,
+            name       = "Truth",
+            has_ribbon = FALSE,
+            stringsAsFactors = FALSE)
+        truth_band <- if (is.null(truth_band)) truth_out_df
+                      else rbind(truth_band, truth_out_df)
+    }
+
+    # 4. Stack all band rows, then dispatch to the shared band
+    #    plotter so the visual idiom matches the rest of the
+    #    package's time-series plots.
+    bands <- band_in
+    if (!is.null(band_out))   bands <- rbind(bands, band_out)
+    if (!is.null(truth_band)) bands <- rbind(bands, truth_band)
+
+    palette <- stats::setNames(c(in_color, out_color),
+                               c(in_name,  out_name))
+
+    .plot_dgtf_band(
+        bands,
+        palette         = palette,
+        alpha           = alpha,
+        xlab            = xlab,
+        ylab            = ylab,
+        main            = main,
+        theme           = theme,
+        legend.position = "right",
+        legend.name     = NULL
+    )
+}

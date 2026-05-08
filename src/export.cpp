@@ -832,6 +832,7 @@ Rcpp::List dgtf_forecast(
                 ymean.at(tidx, s, i) = mean;
                 yvar.at(tidx, s, i) = var;
                 ypred.at(tidx, s, i) = ObsDist::sample(lambda, mod.dobs.par2, mod.dobs.name);
+                ytmp.at(tidx, s) = ypred.at(tidx, s, i);
             }
         }
 
