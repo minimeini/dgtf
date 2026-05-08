@@ -88,6 +88,7 @@ fit <- dgtf(
 )
 summary(fit, truth = list(
   W = sim$model$err$params$var, 
+  seas = sim$model$seasonality$init,
   rho = sim$model$obs_init[2],
   par1 = sim$model$lag$params$par1,
   par2 = sim$model$lag$params$par2))
@@ -121,17 +122,20 @@ The `model` and `prior` objects are reusable across methods — only the
 control changes:
 
 ```{r switch-method, eval = FALSE}
+set.seed(123)
+
 fit_mcmc <- dgtf(sim$y, mod, prior,
                  method  = "mcmc",
                  control = mcmc_control(
                   iter = 5000, 
                   warmup = 2000, 
-                  thin = 2, 
+                  thin = 5, 
                   epsilon = 0.005, 
                   L = 50))
 
 summary(fit_mcmc, truth = list(
   W = sim$model$err$params$var, 
+  seas = sim$model$seasonality$init,
   rho = sim$model$obs_init[2],
   par1 = sim$model$lag$params$par1,
   par2 = sim$model$lag$params$par2))
@@ -198,6 +202,19 @@ dgtf_compare_plot(
          True = 30),
     what = "rho"
 )
+```
+
+```{r}
+truth_list <- list(
+    W    = sim$model$err$params$var,
+    seas = sim$model$seasonality$init,
+    rho  = sim$model$obs_init[2],
+    par1 = sim$model$lag$params$par1,
+    par2 = sim$model$lag$params$par2
+)
+
+dgtf_compare(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
+dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
 ```
 
 # 6. Model comparison
@@ -348,3 +365,50 @@ mod_relu <- dgtf_hawkes(gain = gain_ramp())
 
 A side-by-side comparison of all four canonical models on the same
 dataset will appear in `vignette("four-models")`.
+
+# 8. EpiEstim baseline
+
+For comparison with a non-state-space estimator, the package's `epiestim_baseline()` wrapper runs [`EpiEstim::estimate_R()`][EpiEstim] with a sliding window and returns the `R_t` posterior bands in a format that `dgtf_compare_plot()` consumes directly. `EpiEstim` is in `Suggests`, so this section is conditional on having the package installed.
+
+[EpiEstim]: https://cran.r-project.org/package=EpiEstim
+
+```{r epiestim, eval = requireNamespace("EpiEstim", quietly = TRUE)}
+# Variance-equalizing deseasonalization for count data, applied
+# upstream of EpiEstim because the renewal model assumes a smooth
+# incidence signal. (Koyama-style: scale each observation by the
+# inverse of the day-of-period sd, rescaled to sum to `period`.)
+deseason_counts <- function(y, period = 7L, start_day = 1L) {
+    n <- length(y)
+    day_idx <- ((start_day - 1L + seq_len(n) - 1L) %% period) + 1L
+    sds <- vapply(seq_len(period), function(d) {
+        sd(y[day_idx == d], na.rm = TRUE)
+    }, numeric(1))
+    sds <- sds / sum(sds) * period
+    round(y / sds[day_idx])
+}
+
+y2 <- deseason_counts(c(sim$y), period = 7L)
+
+# Serial-interval mean / sd implied by the Hawkes simulator's
+# lognormal kernel `dgtf_hawkes(meanlog = 1.386, sigma2 = 0.323)`:
+#   mean = exp(meanlog + sigma2 / 2)      ~= 4.7
+#   sd   = mean * sqrt(exp(sigma2) - 1)   ~= 2.9
+epi_baseline <- epiestim_baseline(
+    y       = y2,
+    mean_si = 4.7,
+    sd_si   = 2.9,
+    method  = "parametric_si",
+    window  = 7
+)
+epi_baseline
+
+dgtf_compare_plot(
+    list(
+      M0       = fit,
+      M1       = m1_fit,
+      M2       = m2_fit,
+      EpiEstim = epi_baseline,
+      True     = log1p(exp(c(sim$psi)))),
+    what = "Rt"
+)
+```
