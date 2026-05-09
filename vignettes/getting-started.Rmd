@@ -23,6 +23,7 @@ knitr::opts_chunk$set(
 
 ```{r setup}
 library(dgtf)
+library(ggplot2)
 ```
 
 # 1. The DGTF model class
@@ -43,7 +44,7 @@ mod <- dgtf_model(
   link        = link_identity(),
   sys         = sys_shift(),
   gain        = gain_softplus(),
-  lag         = lag_lognormal(meanlog = 1.386262, sigma2 = 0.3226017),
+  lag         = lag_lognormal(meanlog = 1.35, sigma2 = 0.32),
   err         = err_gaussian(W = 0.01),
   seasonality = seas_period(1, init = 2),
   zi          = FALSE
@@ -58,15 +59,15 @@ sys = "shift", gain = "softplus", lag = lag_lognormal(...), ...)`.
 # 2. Simulate
 
 ```{r simulate}
-sim <- dgtf_simulate_model(mod, ntime = 200, seed = 3269)
-ytrain <- c(sim$y)[1:190]
-ytest <- c(sim$y)[191:200]
-Rt_train <- log1p(exp(c(sim$psi)))[1:190]
-Rt_test <- log1p(exp(c(sim$psi)))[191:200]
+sim <- dgtf_simulate_model(mod, ntime = 210, seed = 3269)
+ytrain <- c(sim$y)[1:200]
+ytest <- c(sim$y)[201:210]
+Rt_train <- log1p(exp(c(sim$psi)))[1:200]
+Rt_test <- log1p(exp(c(sim$psi)))[201:210]
 
 print(sim)
-# plot(sim, what = "y")
-# plot(sim, what = "Rt")
+plot(sim, what = "y")
+plot(sim, what = "Rt")
 ```
 
 # 3. Inference
@@ -97,7 +98,7 @@ m0_init <- dgtf_hawkes(
 
 fit <- dgtf(
   y       = ytrain,
-  model   = mod,
+  model   = m0_init,
   prior   = prior,
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
@@ -116,7 +117,7 @@ summary(fit, truth = list(
 
 ```{r}
 plot(fit, what = "marglik")
-plot(fit, what = "Rt", truth = log1p(exp(sim$psi)))
+plot(fit, what = "Rt", truth = Rt_train)
 plot(fit, what = "W")
 ```
 
@@ -125,7 +126,7 @@ plot(fit, what = "W")
 ppc <- posterior_predict(fit, nrep = 100, Rt = Rt_train)   # truth in a sim study
 attr(fit, "ppc") <- ppc
 summary(ppc)
-plot(ppc, what = "yhat", truth = ytrain, main = "Posterior predictive check")
+p = plot(ppc, what = "yhat", truth = ytrain)
 ```
 
 ```{r}
@@ -250,17 +251,9 @@ one-line shortcuts:
 
 ```{r canonical}
 set.seed(123)
-
-m1_init <- dgtf_hawkes(
-  meanlog = 1.386262,
-  sigma2 = 0.3226017,
-  W = 0.01,
-  seasonality = seas_period(1, init = 2)
-)
-
 m1_fit <- dgtf(
   y = ytrain,
-  model = m1_init,
+  model = mod,
   prior = dgtf_prior(
     seasonality = normal(1, 1),
     rho = inv_gamma(1, 1),
@@ -275,7 +268,7 @@ m1_fit <- dgtf(
     n_sample = 5000,
     n_particle = 500,
     use_discount = TRUE,
-    discount_factor = 0.9
+    discount_factor = 0.92
   )
 )
 plot(m1_fit, what = "Rt")
@@ -347,8 +340,10 @@ m4_fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-m4_ppc <- posterior_predict(m4_fit, nrep = 100,
-                         Rt = log1p(exp(c(sim$psi))))   # truth in a sim study
+m4_ppc <- posterior_predict(m4_fit,
+  nrep = 100,
+  Rt = log1p(exp(c(sim$psi)))
+) # truth in a sim study
 summary(m4_ppc)
 plot(m4_ppc, what = "yhat")
 
@@ -356,82 +351,62 @@ plot(m4_ppc, what = "yhat")
 
 ```{r}
 dgtf_compare_plot(
-    list(
-      M0 = ppc, 
-      M1 = m1_ppc,
-      M2 = m2_ppc,
-      M3 = m3_ppc,
-      M4 = m4_ppc,
-      True = c(sim$y)),
-    what = "yhat"
+  list(
+    M0 = ppc,
+    M1 = m1_ppc,
+    M2 = m2_ppc,
+    M3 = m3_ppc,
+    M4 = m4_ppc,
+    True = c(sim$y)
+  ),
+  what = "yhat"
 )
 
 dgtf_compare_plot(
-    list(
-      M0 = fit, 
-      M1 = m1_fit,
-      M2 = m2_fit,
-      True = Rt_train),
-    what = "Rt"
+  list(
+    M0 = fit,
+    M1 = m1_fit,
+    M2 = m2_fit,
+    True = Rt_train
+  ),
+  what = "Rt"
 )
 
-dgtf_compare(list(M0 = fit, M1 = m1_fit, M2 = m2_fit, M3 = m3_fit, M4 = m4_fit))
+dgtf_compare(list(
+  M0 = fit,
+  M1 = m1_fit,
+  M2 = m2_fit,
+  M3 = m3_fit,
+  M4 = m4_fit
+))
 ```
 
-# 7. Swap a component to change the model
-
-The same data can be analysed under a different DGTF variant by
-substituting one component:
-
-```{r swap, eval = FALSE}
-mod_geo  <- dgtf_hawkes(lag = lag_nbinom(r = 1, kappa = 0.5, window = 30))
-mod_relu <- dgtf_hawkes(gain = gain_ramp())
-```
-
-A side-by-side comparison of all four canonical models on the same
-dataset will appear in `vignette("four-models")`.
-
-# 8. EpiEstim baseline
+# 7. EpiEstim baseline
 
 For comparison with a non-state-space estimator, the package's `epiestim_baseline()` wrapper runs [`EpiEstim::estimate_R()`][EpiEstim] with a sliding window and returns the `R_t` posterior bands in a format that `dgtf_compare_plot()` consumes directly. `EpiEstim` is in `Suggests`, so this section is conditional on having the package installed.
 
 [EpiEstim]: https://cran.r-project.org/package=EpiEstim
 
 ```{r epiestim, eval = requireNamespace("EpiEstim", quietly = TRUE)}
-# Variance-equalizing deseasonalization for count data, applied
-# upstream of EpiEstim because the renewal model assumes a smooth
-# incidence signal. (Koyama-style: scale each observation by the
-# inverse of the day-of-period sd, rescaled to sum to `period`.)
-deseason_counts <- function(y, period = 7L, start_day = 1L) {
-    n <- length(y)
-    day_idx <- ((start_day - 1L + seq_len(n) - 1L) %% period) + 1L
-    sds <- vapply(seq_len(period), function(d) {
-        sd(y[day_idx == d], na.rm = TRUE)
-    }, numeric(1))
-    sds <- sds / sum(sds) * period
-    round(y / sds[day_idx])
-}
-
-# y2 <- deseason_counts(ytrain, period = 7L)
-
 # Serial-interval mean / sd implied by the Hawkes simulator's
 # lognormal kernel `dgtf_hawkes(meanlog = 1.386, sigma2 = 0.323)`:
 #   mean = exp(meanlog + sigma2 / 2)      ~= 4.7
 #   sd   = mean * sqrt(exp(sigma2) - 1)   ~= 2.9
 epi_baseline <- epiestim_baseline(
-    y       = ytrain,
-    mean_si = 4.7,
-    sd_si   = 2.9,
-    method  = "parametric_si",
-    window  = 7
+  y       = ytrain,
+  mean_si = 4.7,
+  sd_si   = 2.9,
+  method  = "parametric_si",
+  window  = 7
 )
 epi_baseline
 
 dgtf_compare_plot(
-    list(
-      M0       = fit,
-      EpiEstim = epi_baseline,
-      True     = Rt_train),
-    what = "Rt"
+  list(
+    M0       = fit,
+    EpiEstim = epi_baseline,
+    True     = Rt_train
+  ),
+  what = "Rt"
 )
 ```

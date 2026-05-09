@@ -60,72 +60,87 @@
 epiestim_baseline <- function(y,
                               mean_si,
                               sd_si,
-                              method     = c("parametric_si",
-                                             "uncertain_si",
-                                             "wallinga_teunis"),
-                              window     = 7L,
-                              level      = 0.95,
+                              method = c(
+                                  "parametric_si",
+                                  "uncertain_si",
+                                  "wallinga_teunis"
+                              ),
+                              window = 7L,
+                              level = 0.95,
+                              align = c("center", "right"),
                               mean_sd_si = 1.8,
-                              sd_sd_si   = 1.4,
+                              sd_sd_si = 1.4,
                               ...) {
     method <- match.arg(method)
+    align <- match.arg(align)
 
     if (!requireNamespace("EpiEstim", quietly = TRUE)) {
         stop("Package `EpiEstim` is required for `epiestim_baseline()`. ",
-             "Install it with `install.packages(\"EpiEstim\")` ",
-             "(it is listed in `Suggests`, not `Imports`).",
-             call. = FALSE)
+            "Install it with `install.packages(\"EpiEstim\")` ",
+            "(it is listed in `Suggests`, not `Imports`).",
+            call. = FALSE
+        )
     }
 
-    y      <- as.numeric(y)
-    n      <- length(y)
+    y <- as.numeric(y)
+    n <- length(y)
     window <- as.integer(window)
 
-    if (n < window + 2L)
-        stop(sprintf("`y` must have length > window + 1 (got length = %d, window = %d).",
-                     n, window), call. = FALSE)
-    if (!is.numeric(mean_si) || length(mean_si) != 1L || mean_si <= 0)
+    if (n < window + 2L) {
+        stop(sprintf(
+            "`y` must have length > window + 1 (got length = %d, window = %d).",
+            n, window
+        ), call. = FALSE)
+    }
+    if (!is.numeric(mean_si) || length(mean_si) != 1L || mean_si <= 0) {
         stop("`mean_si` must be a single positive number.", call. = FALSE)
-    if (!is.numeric(sd_si)   || length(sd_si)   != 1L || sd_si   <= 0)
-        stop("`sd_si` must be a single positive number.",   call. = FALSE)
-    if (!is.numeric(level)   || length(level)   != 1L ||
-        level <= 0 || level >= 1)
-        stop("`level` must be a single number in (0, 1).",  call. = FALSE)
+    }
+    if (!is.numeric(sd_si) || length(sd_si) != 1L || sd_si <= 0) {
+        stop("`sd_si` must be a single positive number.", call. = FALSE)
+    }
+    if (!is.numeric(level) || length(level) != 1L ||
+        level <= 0 || level >= 1) {
+        stop("`level` must be a single number in (0, 1).", call. = FALSE)
+    }
 
-    alpha   <- 1 - level
+    alpha <- 1 - level
     t_start <- 2L:(n - window + 1L)
-    t_end   <- t_start + (window - 1L)
+    t_end <- t_start + (window - 1L)
 
     cfg_args <- c(list(t_start = t_start, t_end = t_end), list(...))
     if (method == "parametric_si") {
         cfg_args$mean_si <- mean_si
-        cfg_args$std_si  <- sd_si
+        cfg_args$std_si <- sd_si
     } else if (method == "uncertain_si") {
-        cfg_args$mean_si     <- mean_si
+        cfg_args$mean_si <- mean_si
         cfg_args$std_mean_si <- mean_sd_si
         cfg_args$min_mean_si <- max(0, mean_si - 2 * mean_sd_si)
         cfg_args$max_mean_si <- mean_si + 2 * mean_sd_si
-        cfg_args$std_si      <- sd_si
-        cfg_args$std_std_si  <- sd_sd_si
-        cfg_args$min_std_si  <- max(0, sd_si - 2 * sd_sd_si)
-        cfg_args$max_std_si  <- sd_si + 2 * sd_sd_si
-        cfg_args$n1          <- cfg_args$n1 %||% 100
-        cfg_args$n2          <- cfg_args$n2 %||% 100
-    } else {  # wallinga_teunis
+        cfg_args$std_si <- sd_si
+        cfg_args$std_std_si <- sd_sd_si
+        cfg_args$min_std_si <- max(0, sd_si - 2 * sd_sd_si)
+        cfg_args$max_std_si <- sd_si + 2 * sd_sd_si
+        cfg_args$n1 <- cfg_args$n1 %||% 100
+        cfg_args$n2 <- cfg_args$n2 %||% 100
+    } else { # wallinga_teunis
         cfg_args$mean_si <- mean_si
-        cfg_args$std_si  <- sd_si
-        cfg_args$n_sim   <- cfg_args$n_sim %||% 100
+        cfg_args$std_si <- sd_si
+        cfg_args$n_sim <- cfg_args$n_sim %||% 100
     }
 
     config <- do.call(EpiEstim::make_config, cfg_args)
-    df_in  <- data.frame(I = y)
+    df_in <- data.frame(I = y)
 
     out <- if (method == "wallinga_teunis") {
-        EpiEstim::wallinga_teunis(df_in, method = "parametric_si",
-                                  config = config)$R
+        EpiEstim::wallinga_teunis(df_in,
+            method = "parametric_si",
+            config = config
+        )$R
     } else {
-        EpiEstim::estimate_R(df_in, method = method,
-                             config = config)$R
+        EpiEstim::estimate_R(df_in,
+            method = method,
+            config = config
+        )$R
     }
 
     # Pull (lower, central, upper). EpiEstim returns Median(R) for the
@@ -143,11 +158,12 @@ epiestim_baseline <- function(y,
         # the posterior mean using the reported standard deviation.
         m <- out[[col_md]]
         s <- out[["Std(R)"]] %||%
-             ((out[["Quantile.0.975(R)"]] - m) / stats::qnorm(0.975))
+            ((out[["Quantile.0.975(R)"]] - m) / stats::qnorm(0.975))
         z <- stats::qnorm(1 - alpha / 2)
         warning(sprintf(
             "EpiEstim did not report quantiles at level %.2f; using a Normal approximation (mean +/- %.2f * Std(R)).",
-            level, z), call. = FALSE)
+            level, z
+        ), call. = FALSE)
         cbind(m - z * s, m, m + z * s)
     }
     colnames(bands) <- c("lower", "median", "upper")
@@ -155,33 +171,61 @@ epiestim_baseline <- function(y,
     # Pad leading rows with NA so row i corresponds to time i in `y`.
     # EpiEstim's first estimate is at t_end[1] = window + 1, so we
     # need `window` leading NA rows (covering times 1..window).
-    pad <- n - nrow(bands)
-    if (pad > 0L) {
-        bands <- rbind(matrix(NA_real_, pad, 3,
-                              dimnames = list(NULL, colnames(bands))),
-                       bands)
+    nr <- nrow(bands)
+    if (align == "right") {
+        pad_lead <- n - nr
+        pad_trail <- 0L
+    } else {
+        # Center: shift left by floor((window - 1) / 2) relative to right-edge.
+        half <- as.integer(floor((window - 1L) / 2))
+        pad_lead <- n - nr - half
+        pad_trail <- half
+    }
+    if (pad_lead > 0L) {
+        bands <- rbind(
+            matrix(NA_real_, pad_lead, 3,
+                dimnames = list(NULL, colnames(bands))
+            ),
+            bands
+        )
+    }
+    if (pad_trail > 0L) {
+        bands <- rbind(
+            bands,
+            matrix(NA_real_, pad_trail, 3,
+                dimnames = list(NULL, colnames(bands))
+            )
+        )
     }
 
     structure(bands,
-              class   = c("epiestim_baseline", "matrix", "array"),
-              method  = method,
-              window  = window,
-              level   = level,
-              mean_si = mean_si,
-              sd_si   = sd_si)
+        class   = c("epiestim_baseline", "matrix", "array"),
+        method  = method,
+        window  = window,
+        align   = align,
+        level   = level,
+        mean_si = mean_si,
+        sd_si   = sd_si
+    )
 }
 
 
 #' @export
 print.epiestim_baseline <- function(x, ...) {
-    cat(sprintf("<epiestim_baseline: method = %s, window = %d, level = %.2f>\n",
-                attr(x, "method"), attr(x, "window"), attr(x, "level")))
-    cat(sprintf("  SI mean = %g, SI sd = %g\n",
-                attr(x, "mean_si"), attr(x, "sd_si")))
-    cat(sprintf("  %d time points (%d NA, %d estimated)\n",
-                nrow(x),
-                sum(is.na(x[, "median"])),
-                sum(!is.na(x[, "median"]))))
+    cat(sprintf(
+        "<epiestim_baseline: method = %s, window = %d, align = %s, level = %.2f>\n",
+        attr(x, "method"), attr(x, "window"), attr(x, "align"), attr(x, "level")
+    ))
+    cat(sprintf(
+        "  SI mean = %g, SI sd = %g\n",
+        attr(x, "mean_si"), attr(x, "sd_si")
+    ))
+    cat(sprintf(
+        "  %d time points (%d NA, %d estimated)\n",
+        nrow(x),
+        sum(is.na(x[, "median"])),
+        sum(!is.na(x[, "median"]))
+    ))
     cat("\nLast 6 rows:\n")
     print(utils::tail(unclass(x), n = 6L))
     invisible(x)
