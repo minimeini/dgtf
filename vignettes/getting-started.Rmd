@@ -87,6 +87,14 @@ prior <- dgtf_prior(
 
 ```{r infer}
 set.seed(123)
+m0_init <- dgtf_hawkes(
+  meanlog = runif(1, 1, 2),
+  sigma2 = runif(1, 0.1, 0.5),
+  W = 1 / rgamma(1, 10, 1),
+  seasonality = seas_period(1, init = runif(1, 1, 10))
+)
+
+
 fit <- dgtf(
   y       = ytrain,
   model   = mod,
@@ -123,10 +131,9 @@ plot(ppc, what = "yhat", truth = ytrain, main = "Posterior predictive check")
 ```{r}
 fc = dgtf_forecast_fit(fit, h = 10, ypred_true = ytest)
 summary(fc)
-
 plot_dgtf_y(fit, fc)
 # plot_dgtf_y(ppc, fc, truth_in = fit$y)
-
+plot(fc)
 ```
 
 # 5. Switch the inference method
@@ -235,31 +242,20 @@ dgtf_compare(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
 dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
 ```
 
-# 6. Forecasting
 
-```{r forecast}
-```
-
-
-# 7. Model comparison
+# 6. Model comparison
 
 For the canonical models discussed in the manuscript there are
 one-line shortcuts:
 
 ```{r canonical}
 set.seed(123)
-m0_init <- dgtf_hawkes(
-  meanlog = runif(1, 1, 2),
-  sigma2 = runif(1, 0.1, 0.5),
-  W = 1 / rgamma(1, 10, 1),
-  seasonality = seas_period(1, init = runif(1, 1, 10))
-)
 
 m1_init <- dgtf_hawkes(
   meanlog = 1.386262,
   sigma2 = 0.3226017,
   W = 0.01,
-  seasonality = seas_period(1, init = 1)
+  seasonality = seas_period(1, init = 2)
 )
 
 m1_fit <- dgtf(
@@ -382,7 +378,7 @@ dgtf_compare_plot(
 dgtf_compare(list(M0 = fit, M1 = m1_fit, M2 = m2_fit, M3 = m3_fit, M4 = m4_fit))
 ```
 
-# 8. Swap a component to change the model
+# 7. Swap a component to change the model
 
 The same data can be analysed under a different DGTF variant by
 substituting one component:
@@ -395,7 +391,7 @@ mod_relu <- dgtf_hawkes(gain = gain_ramp())
 A side-by-side comparison of all four canonical models on the same
 dataset will appear in `vignette("four-models")`.
 
-# 9. EpiEstim baseline
+# 8. EpiEstim baseline
 
 For comparison with a non-state-space estimator, the package's `epiestim_baseline()` wrapper runs [`EpiEstim::estimate_R()`][EpiEstim] with a sliding window and returns the `R_t` posterior bands in a format that `dgtf_compare_plot()` consumes directly. `EpiEstim` is in `Suggests`, so this section is conditional on having the package installed.
 
@@ -416,14 +412,14 @@ deseason_counts <- function(y, period = 7L, start_day = 1L) {
     round(y / sds[day_idx])
 }
 
-y2 <- deseason_counts(c(sim$y), period = 7L)
+# y2 <- deseason_counts(ytrain, period = 7L)
 
 # Serial-interval mean / sd implied by the Hawkes simulator's
 # lognormal kernel `dgtf_hawkes(meanlog = 1.386, sigma2 = 0.323)`:
 #   mean = exp(meanlog + sigma2 / 2)      ~= 4.7
 #   sd   = mean * sqrt(exp(sigma2) - 1)   ~= 2.9
 epi_baseline <- epiestim_baseline(
-    y       = y2,
+    y       = ytrain,
     mean_si = 4.7,
     sd_si   = 2.9,
     method  = "parametric_si",
@@ -434,10 +430,8 @@ epi_baseline
 dgtf_compare_plot(
     list(
       M0       = fit,
-      M1       = m1_fit,
-      M2       = m2_fit,
       EpiEstim = epi_baseline,
-      True     = log1p(exp(c(sim$psi)))),
+      True     = Rt_train),
     what = "Rt"
 )
 ```
