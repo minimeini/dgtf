@@ -330,6 +330,11 @@ exposed by either engine.
 dgtf_compare(list(HVA = fc, MCMC = fc_mcmc))
 ```
 
+<dgtf_comparison (dgtf_forecast): 2 rows, level = 95%>
+ model horizon n_draws coverage   chi crps
+   HVA      14 500,000    0.929 0.399  3.1
+  MCMC      14 500,000        1 0.304 3.12
+
 ```{r}
 dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc))
 ```
@@ -611,6 +616,7 @@ dgtf_compare(
     AR       9        11.1   13.4  2.71      0.916    86.2              116        386.8s        257.0s         129.8s
 
 ```{r}
+set.seed(123)
 dh_fc <- dgtf_forecast_fit(fit, h = 14, ypred_true = ytest)
 dh_fc
 ```
@@ -620,23 +626,24 @@ Forecast draws : 500,000
 
 Forecast:
  step lower median upper truth hit
-    1     8     18    33    22   *
-    2     5     13    25    20   *
-    3     5     14    28    22   *
-    4     6     14    28    15   *
-    5     3     10    22    12   *
+    1     8     18    34    22   *
+    2     5     13    26    20   *
+    3     6     15    28    22   *
+    4     6     15    28    15   *
+    5     3     11    22    12   *
     6     1      6    15    12   *
     7     1      5    13     7   *
     8     7     16    31    16   *
     9     4     11    24     6   *
-   10     5     13    26     6   *
-   11     5     13    27     8   *
+   10     5     13    27     6   *
+   11     5     14    27     8   *
    12     3     10    21    10   *
-   13     1      5    14     7   *
-   14     1      4    12    16   
+   13     1      6    15     7   *
+   14     1      5    13    16    
 
 ```{r}
 summary(dh_fc)
+plot_dgtf_y(fit, dh_fc)
 ```
 
 <dgtf forecast summary: h = 14, level = 95%>
@@ -645,11 +652,12 @@ Forecast draws : 500,000
 Scoring (vs ypred_true):
      metric value nominal_level
    coverage 0.929          0.95
- chi-square 0.435              
-       CRPS  3.15              
+ chi-square 0.399              
+       CRPS   3.1              
 
 ```{r}
-dl_fc <- dgtf_forecast_fit(dl_fit, h = 14, ypred_true = ytest)
+set.seed(123)
+dl_fc <- dgtf_forecast_fit(dl2, h = 14, ypred_true = ytest)
 dl_fc
 ```
 
@@ -660,21 +668,22 @@ Forecast:
  step lower median upper truth hit
     1    10     23    42    22   *
     2     7     18    37    20   *
-    3     7     19    40    22   *
-    4     8     20    41    15   *
-    5     5     16    36    12   *
+    3     8     20    40    22   *
+    4     8     20    40    15   *
+    5     6     17    36    12   *
     6     3     12    29    12   *
-    7     2     10    25     7   *
+    7     2      9    24     7   *
     8     9     23    45    16   *
-    9     6     18    39     6   *
-   10     7     19    41     6    
-   11     7     20    42     8   *
-   12     5     16    37    10   *
-   13     3     11    30     7   *
-   14     2     10    26    16   *
+    9     7     18    38     6    
+   10     8     20    41     6    
+   11     8     20    41     8   *
+   12     6     17    37    10   *
+   13     3     12    29     7   *
+   14     2      9    24    16   *
 
 ```{r}
 summary(dl_fc)
+plot_dgtf_y(dl2, dl_fc)
 ```
 
 <dgtf forecast summary: h = 14, level = 95%>
@@ -682,11 +691,62 @@ Forecast draws : 500,000
 
 Scoring (vs ypred_true):
      metric value nominal_level
-   coverage 0.929          0.95
- chi-square 0.255              
-       CRPS  3.99              
+   coverage 0.857          0.95
+ chi-square 0.263              
+       CRPS  4.17           
 
 ```{r}
+set.seed(123)
 ar_fc <- dgtf_forecast_fit(ar_fit, h = 14, ypred_true = ytest)
 ar_fc
 ```
+
+<dgtf forecast: h = 14, level = 95%>
+Forecast draws : 500,000
+
+Forecast:
+ step lower median upper truth hit
+    1     8     21    41    22   *
+    2     6     17    36    20   *
+    3     6     18    39    22   *
+    4     7     20    45    15   *
+    5     4     14    38    12   *
+    6     3     12    34    12   *
+    7     2     11    33     7   *
+    8     7     21    48    16   *
+    9     5     17    44     6   *
+   10     6     18    46     6   *
+   11     7     21    52     8   *
+   12     3     15    45    10   *
+   13     2     12    42     7   *
+   14     2     11    40    16   *
+
+```{r}
+summary(ar_fc)
+plot_dgtf_y(ar_fit, ar_fc)
+```
+
+<dgtf forecast summary: h = 14, level = 95%>
+Forecast draws : 500,000
+
+Scoring (vs ypred_true):
+     metric value nominal_level
+   coverage     1          0.95
+ chi-square 0.263              
+       CRPS  3.93              
+
+```{r}
+dgtf_compare(
+  list(
+    DH = dh_fc,
+    DL = dl_fc,
+    AR = ar_fc
+  )
+)
+```
+
+<dgtf_comparison (dgtf_forecast): 3 rows, level = 95%>
+ model horizon n_draws coverage   chi crps
+    DH      14 500,000    0.929 0.399  3.1
+    DL      14 500,000    0.857 0.263 4.17
+    AR      14 500,000        1 0.263 3.93

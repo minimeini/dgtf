@@ -597,6 +597,30 @@ Rcpp::List dgtf_forecast(
     model.seas.X = Season::setX(ntime + k, model.seas.period, model.seas.P); 
     // X: period x (ntime + k + 1)
 
+    // Identity-system (AR) fits store per-time-step coefficient
+    // vectors in `Theta`, not a scalar latent driver in `psi_stored`.
+    // Forecast for these models needs the cube; flag it here and
+    // pull it once outside the per-sample loop.
+    std::map<std::string, SysEq::Evolution> sys_list_local =
+        SysEq::sys_list;
+    const bool is_identity =
+        (sys_list_local[model.fsys] == SysEq::Evolution::identity);
+
+    arma::cube Theta_stored;
+    if (is_identity)
+    {
+        if (!output.containsElementNamed("Theta"))
+        {
+            throw std::invalid_argument(
+                "Identity-system (AR) forecast requires `Theta` in the "
+                "fit output. HVA fits expose this; MCMC fits currently "
+                "do not. Forecasting AR models from MCMC fits is not "
+                "yet supported.");
+        }
+        // nP x (ntime + 1) x nsample
+        Theta_stored = Rcpp::as<arma::cube>(output["Theta"]);
+    }
+
     arma::mat psi_stored;
     if (output.containsElementNamed("psi_stored"))
     {
@@ -663,27 +687,27 @@ Rcpp::List dgtf_forecast(
         }
     }
 
-    arma::cube ypred(ntime + k + 1, nrep, nsample, arma::fill::zeros);
+    const unsigned int nsample_eff = is_identity
+                                         ? Theta_stored.n_slices
+                                         : psi_stored.n_cols;
+    const unsigned int nP = is_identity ? Theta_stored.n_rows : 0u;
+
+    arma::cube ypred(ntime + k + 1, nrep, nsample_eff, arma::fill::zeros);
     arma::cube ymean = ypred;
     arma::cube yvar = ypred;
 
-    Progress p(nsample, true);
+    Progress p(nsample_eff, true);
     #ifdef DGTF_USE_OPENMP
     #pragma omp parallel for num_threads(NUM_THREADS) schedule(runtime)
     #endif
-    for (unsigned int i = 0; i < nsample; i++)
+    for (unsigned int i = 0; i < nsample_eff; i++)
     {
+        // Per-sample setup (shared across both branches): seed ytmp
+        // with the in-sample observations and prepare the per-sample
+        // model copy with this iteration's static parameters.
         arma::mat ytmp(ntime + 1 + k, nrep, arma::fill::zeros);
-        arma::mat ft = ytmp;
-        arma::mat psi = ytmp;
         for (unsigned int s = 0; s < nrep; s++)
-        {
             ytmp.submat(0, s, ntime, s) = y;
-            psi.submat(0, s, ntime, s) = psi_stored.col(i);
-            psi.submat(ntime + 1, s, ntime + k, s).fill(psi.at(ntime, s));
-        }
-
-        arma::mat hpsi = GainFunc::psi2hpsi<arma::mat>(psi, model.fgain);
 
         Model mod = model;
         mod.dobs.par2 = rho_stored.at(i);
@@ -692,59 +716,155 @@ Rcpp::List dgtf_forecast(
         mod.dlag.par2 = par2_stored.at(i);
         mod.seas.val = seas_stored.col(i);
 
-        for (unsigned int j = 1; j <= k; j++)
+        if (is_identity)
         {
-            unsigned int tidx = ntime + j;
+            // ----- Identity-system (AR) forecast -----
+            //
+            // Each lag-l coefficient component evolves as an
+            // independent random walk with variance W per step
+            // (or stays constant when W = 0). The initial coefficient
+            // vector is the posterior sample's last-time-step state
+            // taken from the Theta cube.
+            //
+            // Transfer function with uniform lag (`Fphi == 1`):
+            //     f_t = sum_{l=0}^{nP-1} h(theta_l) * y_{t-1-l}
+            arma::mat theta_state(nP, nrep);
+            const arma::vec theta_last =
+                Theta_stored.slice(i).col(ntime); // nP x 1
+            for (unsigned int s = 0; s < nrep; s++)
+                theta_state.col(s) = theta_last;
+
+            const double sd_W =
+                std::sqrt(std::max(0.0, mod.derr.par1));
+
+            for (unsigned int j = 1; j <= k; j++)
+            {
+                const unsigned int tidx = ntime + j;
+                for (unsigned int s = 0; s < nrep; s++)
+                {
+                    // Identity dynamics: theta_t = theta_{t-1} + N(0, W * I).
+                    if (sd_W > 0.0)
+                    {
+                        for (unsigned int l = 0; l < nP; l++)
+                            theta_state.at(l, s) +=
+                                sd_W * arma::randn();
+                    }
+
+                    // Transfer function (uniform lag, no Fphi weighting).
+                    double f_t = 0.0;
+                    const unsigned int nelem = std::min(tidx, nP);
+                    for (unsigned int l = 0; l < nelem; l++)
+                    {
+                        const double psi_l = theta_state.at(l, s);
+                        const double hpsi_l =
+                            GainFunc::psi2hpsi(psi_l, model.fgain);
+                        const double y_lag = ytmp.at(tidx - 1 - l, s);
+                        f_t += hpsi_l * y_lag;
+                    }
+
+                    double eta = f_t;
+                    if (mod.seas.period > 0)
+                        eta += arma::dot(mod.seas.X.col(tidx),
+                                         mod.seas.val);
+
+                    const double lambda =
+                        LinkFunc::ft2mu(eta, model.flink);
+                    double mean = 0.0, var = 0.0;
+                    switch (obs_list[model.dobs.name])
+                    {
+                    case AVAIL::Dist::nbinomm:
+                        mean = lambda;
+                        var = std::abs(
+                            nbinomm::var(lambda, model.dobs.par2));
+                        break;
+                    case AVAIL::Dist::nbinomp:
+                        mean = nbinom::mean(lambda, model.dobs.par2);
+                        var = nbinom::var(lambda, model.dobs.par2);
+                        break;
+                    case AVAIL::Dist::poisson:
+                        mean = lambda;
+                        var = lambda;
+                        break;
+                    default:
+                        throw std::invalid_argument(
+                            "Unknown observation distribution.");
+                    }
+
+                    ymean.at(tidx, s, i) = mean;
+                    yvar.at(tidx, s, i) = var;
+                    ypred.at(tidx, s, i) = ObsDist::sample(
+                        lambda, mod.dobs.par2, mod.dobs.name);
+                    ytmp.at(tidx, s) = ypred.at(tidx, s, i);
+                }
+            }
+        }
+        else
+        {
+            // ----- Shift-system forecast (existing path) -----
+            //
+            // psi_stored is (ntime + 1) x nsample; column i is the
+            // per-sample latent-driver trajectory. Continue forward
+            // by holding the last value (matches the original behavior).
+            arma::mat ft = ytmp;
+            arma::mat psi = ytmp;
             for (unsigned int s = 0; s < nrep; s++)
             {
-                ft.at(tidx, s) = TransFunc::func_ft(
-                    tidx, ytmp.col(s), ft.col(s), hpsi.col(s), mod.dlag, mod.ftrans);
+                psi.submat(0, s, ntime, s) = psi_stored.col(i);
+                psi.submat(ntime + 1, s, ntime + k, s)
+                    .fill(psi.at(ntime, s));
+            }
 
-                double eta = ft.at(tidx, s);
-                if (mod.seas.period > 0)
-                {
-                    eta += arma::dot(mod.seas.X.col(tidx), mod.seas.val);
-                }
+            arma::mat hpsi =
+                GainFunc::psi2hpsi<arma::mat>(psi, model.fgain);
 
-                double lambda = LinkFunc::ft2mu(eta, model.flink);
-                double mean, var;
-                switch (obs_list[model.dobs.name])
+            for (unsigned int j = 1; j <= k; j++)
+            {
+                const unsigned int tidx = ntime + j;
+                for (unsigned int s = 0; s < nrep; s++)
                 {
-                case AVAIL::Dist::nbinomm:
-                {
-                    mean = lambda;
-                    var = std::abs(nbinomm::var(lambda, model.dobs.par2));
-                    break;
-                }
-                case AVAIL::Dist::nbinomp:
-                {
-                    mean = nbinom::mean(lambda, model.dobs.par2);
-                    var = nbinom::var(lambda, model.dobs.par2);
-                    break;
-                }
-                case AVAIL::Dist::poisson:
-                {
-                    mean = lambda;
-                    var = lambda;
-                    break;
-                }
-                default:
-                {
-                    throw std::invalid_argument("Unknown observation distribution.");
-                    break;
-                }
-                }
+                    ft.at(tidx, s) = TransFunc::func_ft(
+                        tidx, ytmp.col(s), ft.col(s), hpsi.col(s),
+                        mod.dlag, mod.ftrans);
 
-                ymean.at(tidx, s, i) = mean;
-                yvar.at(tidx, s, i) = var;
-                ypred.at(tidx, s, i) = ObsDist::sample(lambda, mod.dobs.par2, mod.dobs.name);
-                ytmp.at(tidx, s) = ypred.at(tidx, s, i);
+                    double eta = ft.at(tidx, s);
+                    if (mod.seas.period > 0)
+                        eta += arma::dot(mod.seas.X.col(tidx),
+                                         mod.seas.val);
+
+                    const double lambda =
+                        LinkFunc::ft2mu(eta, model.flink);
+                    double mean = 0.0, var = 0.0;
+                    switch (obs_list[model.dobs.name])
+                    {
+                    case AVAIL::Dist::nbinomm:
+                        mean = lambda;
+                        var = std::abs(
+                            nbinomm::var(lambda, model.dobs.par2));
+                        break;
+                    case AVAIL::Dist::nbinomp:
+                        mean = nbinom::mean(lambda, model.dobs.par2);
+                        var = nbinom::var(lambda, model.dobs.par2);
+                        break;
+                    case AVAIL::Dist::poisson:
+                        mean = lambda;
+                        var = lambda;
+                        break;
+                    default:
+                        throw std::invalid_argument(
+                            "Unknown observation distribution.");
+                    }
+
+                    ymean.at(tidx, s, i) = mean;
+                    yvar.at(tidx, s, i) = var;
+                    ypred.at(tidx, s, i) = ObsDist::sample(
+                        lambda, mod.dobs.par2, mod.dobs.name);
+                    ytmp.at(tidx, s) = ypred.at(tidx, s, i);
+                }
             }
         }
 
-        p.increment(); 
+        p.increment();
     }
-
 
     arma::mat ypred_mat(
         ypred.memptr(),
