@@ -1,190 +1,171 @@
-# Multi-fit comparison table for `dgtf_fit` objects.
-#
-# Each row is one fit; columns are goodness-of-fit and runtime metrics
-# extracted from the fit object directly or from a posterior_predict()
-# result (cached on `attr(fit, "ppc")` if available, otherwise run on
-# the fly).
-
-#' Side-by-side comparison of fitted DGTF models
+#' Side-by-side comparison of fitted DGTF models, PPC objects, or forecasts
 #'
-#' Compares an arbitrary named list of fits on a common set of
-#' goodness-of-fit and runtime metrics. Useful for selecting between
-#' candidate models or comparing inference engines (HVA vs MCMC).
+#' Compares an arbitrary named list of \code{dgtf_fit}, \code{dgtf_ppc},
+#' or \code{dgtf_forecast} objects on a common set of metrics. The list
+#' must be homogeneous: all fits, all PPCs, or all forecasts.
 #'
-#' For each fit, an attached PPC (`attr(fit, "ppc")`) is reused when
-#' available, otherwise [`posterior_predict()`] is run on the fly
-#' with `nrep`. To control the level / Rt reference, attach the PPC
-#' yourself first or pass `force_recompute = TRUE` / `Rt_truth = ...`.
+#' For fit lists, the columns are the in-sample posterior-predictive
+#' scoring metrics computed via \fct{posterior_predict}, the static
+#' parameter count, the HVA log-marginal-likelihood proxy (NA for MCMC),
+#' and the runtime breakdown.
 #'
-#' @param fits Named list of `dgtf_fit` objects. Names appear in the
-#'   `model` column of the returned data frame.
-#' @param level Credible-interval level used for coverage / interval
-#'   scoring (default 0.95). Used only for fresh PPC computations.
+#' For PPC lists, the columns are the in-sample scoring metrics on the
+#' observed counts and, when the PPC carries a reference $R_t$
+#' trajectory, the corresponding $R_t$ recovery metrics.
+#'
+#' For forecast lists, the columns are the forecast horizon, the number
+#' of forecast draws, and the out-of-sample scoring metrics
+#' (\code{coverage}, \code{chi}, \code{crps}) when held-out truth was
+#' supplied to \fct{dgtf_forecast_fit}.
+#'
+#' @param fits Named list of objects of homogeneous class.
+#' @param level Credible-interval level (default 0.95). Used only for
+#'   on-the-fly PPC computation when fits are supplied.
 #' @param nrep Posterior-predictive replicate draws per posterior
-#'   sample, forwarded to [`posterior_predict()`] when a fit has no
-#'   cached PPC.
-#' @param Rt_truth Optional reference `R_t` vector (length matches
-#'   the input series, e.g. `softplus(sim$psi)`). When supplied, the
-#'   table gains `mae_Rt`, `rmse_Rt`, `coverage_Rt`, and
-#'   `interval_score_Rt` columns; PPCs are recomputed to bind this
-#'   reference.
-#' @param force_recompute If `TRUE`, ignore any attached PPC and run
-#'   [`posterior_predict()`] fresh for every fit.
+#'   sample. Used only for fits without a cached PPC.
+#' @param Rt_truth Optional reference $R_t$ vector. Fits only.
+#' @param truth Optional truth list for static parameter recovery.
+#'   Fits only.
+#' @param force_recompute If \code{TRUE}, ignore any attached PPC on
+#'   the fits. Fits only.
 #'
-#' @return A data frame of class `dgtf_comparison`, one row per fit.
-#'   Columns:
-#'   * `model` -- name from the input list.
-#'   * `n_param` -- count of inferred static-parameter scalars
-#'     (cross-engine, via [`.dgtf_static_draws()`]).
-#'   * `log_marglik` -- HVA-only model-evidence proxy: stable tail
-#'     median of the SMC log-marginal trace (estimate of
-#'     `log p(y | gamma_final)`). `NA` for MCMC fits, which don't
-#'     currently store this. **Note**: this is the marginal
-#'     likelihood, not the pointwise log-likelihood -- treat it as a
-#'     ranking signal for HVA fits, not as a frequentist
-#'     log-likelihood.
-#'   * `crps_y`, `chi_y`, `coverage_y`, `width_y`,
-#'     `interval_score_y` -- in-sample posterior-predictive scoring
-#'     for the observed counts `y` (see [`posterior_predict()`]).
-#'   * `mae_Rt`, `rmse_Rt`, `coverage_Rt`, `interval_score_Rt` --
-#'     present only when `Rt_truth` is supplied.
-#'   * `elapsed_total`, `elapsed_optim`, `elapsed_sample` -- runtimes
-#'     in seconds (NA when the fit doesn't expose the split).
-#'
-#' @examples
-#' \dontrun{
-#' fit_hva  <- dgtf(y, mod, prior, method = "hva")
-#' fit_mcmc <- dgtf(y, mod, prior, method = "mcmc")
-#'
-#' # Cache PPCs once -- reused on every comparison call.
-#' attr(fit_hva,  "ppc") <- posterior_predict(fit_hva,  nrep = 100)
-#' attr(fit_mcmc, "ppc") <- posterior_predict(fit_mcmc, nrep = 100)
-#'
-#' dgtf_compare(list(HVA = fit_hva, MCMC = fit_mcmc))
-#'
-#' # In a sim study, pass a reference R_t to also score Rt recovery:
-#' dgtf_compare(list(HVA = fit_hva, MCMC = fit_mcmc),
-#'              Rt_truth = log1p(exp(sim$psi)))
-#' }
+#' @return A data frame of class \code{dgtf_comparison}, one row per
+#'   input element. The columns depend on the input class.
 #'
 #' @export
-# Multi-fit comparison table for `dgtf_fit` objects.
-#
-# Each row is one fit; columns are goodness-of-fit and runtime metrics
-# extracted from the fit object directly or from a posterior_predict()
-# result (cached on `attr(fit, "ppc")` if available, otherwise run on
-# the fly).
+dgtf_compare <- function(fits, ...) UseMethod("dgtf_compare")
 
-#' Side-by-side comparison of fitted DGTF models
-#'
-#' Compares an arbitrary named list of fits on a common set of
-#' goodness-of-fit and runtime metrics. Useful for selecting between
-#' candidate models or comparing inference engines (HVA vs MCMC).
-#'
-#' For each fit, an attached PPC (`attr(fit, "ppc")`) is reused when
-#' available, otherwise [`posterior_predict()`] is run on the fly
-#' with `nrep`. To control the level / Rt reference, attach the PPC
-#' yourself first or pass `force_recompute = TRUE` / `Rt_truth = ...`.
-#'
-#' @param fits Named list of `dgtf_fit` objects. Names appear in the
-#'   `model` column of the returned data frame.
-#' @param level Credible-interval level used for coverage / interval
-#'   scoring (default 0.95). Used only for fresh PPC computations.
-#' @param nrep Posterior-predictive replicate draws per posterior
-#'   sample, forwarded to [`posterior_predict()`] when a fit has no
-#'   cached PPC.
-#' @param Rt_truth Optional reference `R_t` vector (length matches
-#'   the input series, e.g. `softplus(sim$psi)`). When supplied, the
-#'   table gains `mae_Rt`, `rmse_Rt`, `coverage_Rt`, and
-#'   `interval_score_Rt` columns; PPCs are recomputed to bind this
-#'   reference.
-#' @param force_recompute If `TRUE`, ignore any attached PPC and run
-#'   [`posterior_predict()`] fresh for every fit.
-#'
-#' @return A data frame of class `dgtf_comparison`, one row per fit.
-#'   Columns:
-#'   * `model` -- name from the input list.
-#'   * `n_param` -- count of inferred static-parameter scalars
-#'     (cross-engine, via [`.dgtf_static_draws()`]).
-#'   * `log_marglik` -- HVA-only model-evidence proxy: stable tail
-#'     median of the SMC log-marginal trace (estimate of
-#'     `log p(y | gamma_final)`). `NA` for MCMC fits, which don't
-#'     currently store this. **Note**: this is the marginal
-#'     likelihood, not the pointwise log-likelihood -- treat it as a
-#'     ranking signal for HVA fits, not as a frequentist
-#'     log-likelihood.
-#'   * `crps_y`, `chi_y`, `coverage_y`, `width_y`,
-#'     `interval_score_y` -- in-sample posterior-predictive scoring
-#'     for the observed counts `y` (see [`posterior_predict()`]).
-#'   * `mae_Rt`, `rmse_Rt`, `coverage_Rt`, `interval_score_Rt` --
-#'     present only when `Rt_truth` is supplied.
-#'   * `elapsed_total`, `elapsed_optim`, `elapsed_sample` -- runtimes
-#'     in seconds (NA when the fit doesn't expose the split).
-#'
-#' @examples
-#' \dontrun{
-#' fit_hva  <- dgtf(y, mod, prior, method = "hva")
-#' fit_mcmc <- dgtf(y, mod, prior, method = "mcmc")
-#'
-#' # Cache PPCs once -- reused on every comparison call.
-#' attr(fit_hva,  "ppc") <- posterior_predict(fit_hva,  nrep = 100)
-#' attr(fit_mcmc, "ppc") <- posterior_predict(fit_mcmc, nrep = 100)
-#'
-#' dgtf_compare(list(HVA = fit_hva, MCMC = fit_mcmc))
-#'
-#' # In a sim study, pass a reference R_t to also score Rt recovery:
-#' dgtf_compare(list(HVA = fit_hva, MCMC = fit_mcmc),
-#'              Rt_truth = log1p(exp(sim$psi)))
-#' }
-#'
 #' @export
-dgtf_compare <- function(fits,
-                         level = 0.95,
-                         nrep = 100L,
-                         Rt_truth = NULL,
-                         truth = NULL,
-                         force_recompute = FALSE) {
+dgtf_compare.default <- function(fits, ...) {
     if (!is.list(fits) || length(fits) == 0L ||
-        is.null(names(fits)) || any(!nzchar(names(fits)))) {
-        stop("`fits` must be a named, non-empty list of `dgtf_fit` ",
-            "objects.",
-            call. = FALSE
-        )
-    }
+        is.null(names(fits)) || any(!nzchar(names(fits))))
+        stop("`fits` must be a named, non-empty list.", call. = FALSE)
+
+    cls <- vapply(fits, function(z) class(z)[1L], character(1L))
+    rep_class <- unique(cls)
+    if (length(rep_class) > 1L)
+        stop("`fits` must be a homogeneous list. Got mixed classes: ",
+             paste(rep_class, collapse = ", "), ".", call. = FALSE)
+
+    elt_class <- rep_class[[1L]]
+    if (elt_class == "dgtf_fit")
+        return(dgtf_compare.dgtf_fit_list(
+            structure(fits, class = "dgtf_fit_list"), ...))
+    if (elt_class == "dgtf_ppc")
+        return(dgtf_compare.dgtf_ppc_list(
+            structure(fits, class = "dgtf_ppc_list"), ...))
+    if (elt_class == "dgtf_forecast")
+        return(dgtf_compare.dgtf_forecast_list(
+            structure(fits, class = "dgtf_forecast_list"), ...))
+    stop("Elements must be `dgtf_fit`, `dgtf_ppc`, or `dgtf_forecast` ",
+         "objects (got: ", elt_class, ").", call. = FALSE)
+}
+
+#' @export
+dgtf_compare.dgtf_fit_list <- function(fits,
+                                       level = 0.95,
+                                       nrep = 100L,
+                                       Rt_truth = NULL,
+                                       truth = NULL,
+                                       force_recompute = FALSE) {
+    fits <- unclass(fits)
     if (!is.numeric(level) || length(level) != 1L ||
-        level <= 0 || level >= 1) {
+        level <= 0 || level >= 1)
         stop("`level` must be a single number in (0, 1).", call. = FALSE)
-    }
 
     rows <- lapply(seq_along(fits), function(i) {
-        fit <- fits[[i]]
+        fit  <- fits[[i]]
         name <- names(fits)[[i]]
-        if (!inherits(fit, "dgtf_fit")) {
-            stop(
-                sprintf(
-                    "Element `%s` is not a `dgtf_fit` (got class: %s).",
-                    name, paste(class(fit), collapse = "/")
-                ),
-                call. = FALSE
-            )
-        }
-        .dgtf_compare_row(fit,
-            name = name, level = level,
-            nrep = nrep, Rt_truth = Rt_truth,
-            truth = truth,
-            force_recompute = force_recompute
-        )
+        .dgtf_compare_row(fit, name = name, level = level,
+                          nrep = nrep, Rt_truth = Rt_truth,
+                          truth = truth,
+                          force_recompute = force_recompute)
     })
 
     df <- do.call(rbind, rows)
     rownames(df) <- NULL
     class(df) <- c("dgtf_comparison", "data.frame")
-    attr(df, "level") <- level
+    attr(df, "input_class") <- "dgtf_fit"
+    attr(df, "level")       <- level
     attr(df, "has_Rt_truth") <- !is.null(Rt_truth)
-    attr(df, "has_truth") <- !is.null(truth)
+    attr(df, "has_truth")   <- !is.null(truth)
     df
 }
 
+#' @export
+dgtf_compare.dgtf_ppc_list <- function(fits, ...) {
+    extras <- list(...)
+    if (length(extras))
+        warning("Extra arguments to `dgtf_compare` are ignored for PPC lists: ",
+                paste(names(extras), collapse = ", "), call. = FALSE)
+    fits <- unclass(fits)
+
+    rows <- lapply(seq_along(fits), function(i) {
+        ppc  <- fits[[i]]
+        name <- names(fits)[[i]]
+        out  <- data.frame(
+            model            = name,
+            crps_y           = .pull(ppc$crps),
+            chi_y            = .pull(ppc$chi),
+            coverage_y       = .pull(ppc$coverage_yhat),
+            width_y          = .pull(ppc$width_yhat),
+            interval_score_y = .pull(ppc$interval_score_yhat),
+            stringsAsFactors = FALSE
+        )
+        if (!is.null(ppc$mae_Rt)) {
+            out$mae_Rt            <- .pull(ppc$mae_Rt)
+            out$rmse_Rt           <- .pull(ppc$rmse_Rt)
+            out$coverage_Rt       <- .pull(ppc$coverage_Rt)
+            out$width_Rt          <- .pull(ppc$width_Rt)
+            out$interval_score_Rt <- .pull(ppc$interval_score_Rt)
+        }
+        out
+    })
+    df <- do.call(rbind, rows)
+    rownames(df) <- NULL
+    class(df) <- c("dgtf_comparison", "data.frame")
+    attr(df, "input_class") <- "dgtf_ppc"
+    attr(df, "level") <- fits[[1L]]$level %||% 0.95
+    attr(df, "has_Rt_truth") <- !is.null(fits[[1L]]$mae_Rt)
+    df
+}
+
+#' @export
+dgtf_compare.dgtf_forecast_list <- function(fits, ...) {
+    extras <- list(...)
+    if (length(extras))
+        warning("Extra arguments to `dgtf_compare` are ignored for forecast lists: ",
+                paste(names(extras), collapse = ", "), call. = FALSE)
+    fits <- unclass(fits)
+
+    rows <- lapply(seq_along(fits), function(i) {
+        fc   <- fits[[i]]
+        name <- names(fits)[[i]]
+        out  <- data.frame(
+            model    = name,
+            horizon  = as.integer(fc$horizon %||% NA_integer_),
+            n_draws  = as.integer(fc$nsample %||% NA_integer_),
+            stringsAsFactors = FALSE
+        )
+        if (!is.null(fc$coverage)) {
+            out$coverage <- .pull(fc$coverage)
+            out$chi      <- .pull(fc$chi)
+            out$crps     <- .pull(fc$crps)
+        }
+        out
+    })
+    df <- do.call(rbind, rows)
+    rownames(df) <- NULL
+    class(df) <- c("dgtf_comparison", "data.frame")
+    attr(df, "input_class") <- "dgtf_forecast"
+    attr(df, "level") <- fits[[1L]]$level %||% 0.95
+    attr(df, "has_truth_oos") <- !is.null(fits[[1L]]$coverage)
+    df
+}
+
+# Helper, used by all three methods.
+.pull <- function(x, default = NA_real_)
+    if (is.null(x)) default else as.numeric(x)
 
 # Internal: extract one row of the comparison table.
 .dgtf_compare_row <- function(fit, name, level, nrep,
@@ -265,20 +246,22 @@ dgtf_compare <- function(fits,
     out
 }
 
-
 #' @export
 print.dgtf_comparison <- function(x, digits = 3L, ...) {
-    cat(sprintf("<dgtf_comparison: %d model%s, level = %.0f%%>\n",
+    cls <- attr(x, "input_class") %||% "dgtf_fit"
+    cat(sprintf("<dgtf_comparison (%s): %d row%s, level = %.0f%%>\n",
+                cls,
                 nrow(x), if (nrow(x) == 1L) "" else "s",
                 100 * (attr(x, "level") %||% 0.95)))
 
     pt <- as.data.frame(unclass(x), stringsAsFactors = FALSE)
+    int_cols <- c("n_param", "n_param_truth", "horizon", "n_draws")
 
     for (nm in setdiff(names(pt), "model")) {
         v <- pt[[nm]]
         if (!is.numeric(v)) next
-        pt[[nm]] <- if (nm == "n_param") {
-            ifelse(is.na(v), "", formatC(v, format = "d"))
+        pt[[nm]] <- if (nm %in% int_cols) {
+            ifelse(is.na(v), "", formatC(v, format = "d", big.mark = ","))
         } else if (grepl("^elapsed", nm)) {
             ifelse(is.na(v), "", sprintf("%.1fs", v))
         } else {
@@ -287,46 +270,16 @@ print.dgtf_comparison <- function(x, digits = 3L, ...) {
     }
     print(pt, row.names = FALSE)
 
-    if (any(is.na(x$log_marglik)))
+    if (identical(cls, "dgtf_fit") && any(is.na(x$log_marglik)))
         cat("\nNote: `log_marglik` is the HVA SMC tail estimate of\n",
             "log p(y | gamma_final); MCMC fits have no equivalent stored\n",
             "and show NA. Pointwise log-likelihood is not currently\n",
             "exposed by either engine.\n", sep = "")
-    invisible(x)
-}
 
-#' @export
-print.dgtf_comparison <- function(x, digits = 3L, ...) {
-    cat(sprintf("<dgtf_comparison: %d model%s, level = %.0f%%>\n",
-                nrow(x), if (nrow(x) == 1L) "" else "s",
-                100 * (attr(x, "level") %||% 0.95)))
-
-    pt <- as.data.frame(unclass(x), stringsAsFactors = FALSE)
-
-    for (nm in setdiff(names(pt), "model")) {
-        v <- pt[[nm]]
-        if (!is.numeric(v)) next
-        pt[[nm]] <- if (nm == "n_param") {
-            ifelse(is.na(v), "", formatC(v, format = "d"))
-        } else if (nm == "n_param_truth") {
-            ifelse(is.na(v), "", formatC(v, format = "d"))
-        } else if (grepl("^elapsed", nm)) {
-            ifelse(is.na(v), "", sprintf("%.1fs", v))
-        } else {
-            formatC(v, digits = digits, format = "g")
-        }
-    }
-    print(pt, row.names = FALSE)
-
-    if (any(is.na(x$log_marglik)))
-        cat("\nNote: `log_marglik` is the HVA SMC tail estimate of\n",
-            "log p(y | gamma_final); MCMC fits have no equivalent stored\n",
-            "and show NA. Pointwise log-likelihood is not currently\n",
-            "exposed by either engine.\n", sep = "")
-    if (isTRUE(attr(x, "has_truth")))
-        cat("\nUse `dgtf_compare_params(fits, truth)` for the\n", 
+    if (identical(cls, "dgtf_fit") && isTRUE(attr(x, "has_truth")))
+        cat("\nUse `dgtf_compare_params(fits, truth)` for the\n",
             "per-parameter recovery table.\n", sep = "")
-        
+
     invisible(x)
 }
 
