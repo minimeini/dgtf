@@ -330,31 +330,46 @@ print.dgtf_comparison <- function(x, digits = 3L, ...) {
     invisible(x)
 }
 
-#' Per-parameter recovery across multiple fits
+#' Per-parameter posterior summaries across multiple fits
 #'
-#' Long-form table stacking [`param_recovery()`] output for every
+#' Long-form table stacking per-parameter posterior summaries for every
 #' fit in `fits`, with an added `model` column. One row per
-#' (parameter, model) pair. Use this for the detailed cross-fit view
-#' of static-parameter estimation; for an at-a-glance summary use
-#' [`dgtf_compare()`] with `truth` supplied.
+#' (parameter, fit) pair. Use this for the detailed cross-fit view of
+#' static-parameter estimation.
+#'
+#' When `truth` is supplied, the table additionally reports recovery
+#' metrics (`bias`, `mae`, `rmse`, `crps`, `coverage`) from
+#' [`param_recovery()`]. When `truth` is `NULL`, only the posterior
+#' summaries (`mean`, `median`, `sd`, `q_lo`, `q_hi`) are reported,
+#' giving a side-by-side view of the marginal posteriors without
+#' assuming a known data-generating process.
+#'
+#' For an at-a-glance summary across fits, use [`dgtf_compare()`]
+#' (with `truth` supplied for the recovery columns).
 #'
 #' @param fits Named list of `dgtf_fit` objects.
-#' @param truth Named numeric vector or named list of true static
-#'   parameter values (same convention as [`param_recovery()`]).
-#' @param level Credible-interval level for the `coverage` column
-#'   (default 0.95).
+#' @param truth Optional named numeric vector or named list of true
+#'   static parameter values (same convention as
+#'   [`param_recovery()`]). When `NULL` (default), only posterior
+#'   summaries are reported.
+#' @param level Credible-interval level for the `q_lo`, `q_hi`, and
+#'   (when `truth` is supplied) `coverage` columns (default 0.95).
 #'
 #' @return A data frame of class `dgtf_param_comparison` with columns
-#'   `parameter`, `model`, `truth`, `mean`, `median`, `sd`, `q_lo`,
-#'   `q_hi`, `bias`, `mae`, `rmse`, `crps`, `coverage`. Rows are
-#'   ordered by parameter, then by the input order of `fits`.
+#'   `parameter`, `model`, `mean`, `median`, `sd`, `q_lo`, `q_hi`,
+#'   and, when `truth` is supplied, `truth`, `bias`, `mae`, `rmse`,
+#'   `crps`, `coverage`. Rows are ordered by parameter, then by the
+#'   input order of `fits`.
 #'
 #' @export
-dgtf_compare_params <- function(fits, truth, level = 0.95) {
+dgtf_compare_params <- function(fits, truth = NULL, level = 0.95) {
     if (!is.list(fits) || length(fits) == 0L ||
         is.null(names(fits)) || any(!nzchar(names(fits))))
         stop("`fits` must be a named, non-empty list of `dgtf_fit` ",
              "objects.", call. = FALSE)
+    if (!is.numeric(level) || length(level) != 1L ||
+        level <= 0 || level >= 1)
+        stop("`level` must be a single number in (0, 1).", call. = FALSE)
 
     rows <- lapply(seq_along(fits), function(i) {
         fit  <- fits[[i]]
@@ -363,10 +378,10 @@ dgtf_compare_params <- function(fits, truth, level = 0.95) {
             stop(sprintf("Element `%s` is not a `dgtf_fit`.", name),
                  call. = FALSE)
         rec <- tryCatch(
-            param_recovery(fit, truth, level = level),
+            .compare_params_row(fit, truth, level),
             error = function(e) {
                 warning(sprintf(
-                    "param_recovery() failed for `%s`: %s",
+                    "compare_params row failed for `%s`: %s",
                     name, conditionMessage(e)), call. = FALSE)
                 NULL
             })
@@ -378,25 +393,54 @@ dgtf_compare_params <- function(fits, truth, level = 0.95) {
     if (!length(rows)) return(NULL)
 
     df <- do.call(rbind, rows)
-    # Move `model` next to `parameter`.
     other <- setdiff(names(df), c("parameter", "model"))
     df <- df[, c("parameter", "model", other)]
-    # Stable order: parameter first, then fit order from `fits`.
     df$model <- factor(df$model, levels = names(fits))
     df <- df[order(df$parameter, df$model), , drop = FALSE]
     df$model <- as.character(df$model)
     rownames(df) <- NULL
     class(df) <- c("dgtf_param_comparison", "data.frame")
-    attr(df, "level") <- level
+    attr(df, "level")     <- level
+    attr(df, "has_truth") <- !is.null(truth)
     df
 }
 
+# Internal: produce one fit's worth of summary rows. Dispatches to
+# `param_recovery()` when truth is provided, otherwise computes the
+# posterior summaries directly from `.dgtf_static_draws()`.
+.compare_params_row <- function(fit, truth, level) {
+    if (!is.null(truth))
+        return(param_recovery(fit, truth, level = level))
+
+    d <- tryCatch(.dgtf_static_draws(fit), error = function(e) NULL)
+    if (is.null(d) || is.null(d$draws_matrix) ||
+        ncol(d$draws_matrix) == 0L)
+        return(NULL)
+
+    dm    <- d$draws_matrix
+    alpha <- 1 - level
+    qs    <- apply(dm, 2, stats::quantile,
+                   probs = c(alpha / 2, 1 - alpha / 2))
+
+    data.frame(
+        parameter = colnames(dm),
+        mean      = round(apply(dm, 2, mean),         3),
+        median    = round(apply(dm, 2, stats::median), 3),
+        sd        = round(apply(dm, 2, stats::sd),     3),
+        q_lo      = round(qs[1, ],                     3),
+        q_hi      = round(qs[2, ],                     3),
+        row.names = NULL,
+        stringsAsFactors = FALSE
+    )
+}
 
 #' @export
 print.dgtf_param_comparison <- function(x, digits = 3L, ...) {
     np  <- length(unique(x$parameter))
     nm  <- length(unique(x$model))
     lvl <- attr(x, "level") %||% 0.95
+    has_truth <- isTRUE(attr(x, "has_truth"))
+
     cat(sprintf("<dgtf_param_comparison: %d parameter%s x %d model%s, level = %.0f%%>\n",
                 np, if (np == 1L) "" else "s",
                 nm, if (nm == 1L) "" else "s",
@@ -405,7 +449,8 @@ print.dgtf_param_comparison <- function(x, digits = 3L, ...) {
     pt <- as.data.frame(unclass(x), stringsAsFactors = FALSE)
 
     # Convert the logical coverage column into a blank-named asterisk
-    # column before the numeric formatting loop runs.
+    # column before the numeric formatting loop runs. Only present
+    # when truth was supplied.
     if ("coverage" %in% names(pt)) {
         sig <- ifelse(is.na(pt$coverage), " ",
                       ifelse(pt$coverage, "*", " "))
@@ -418,7 +463,8 @@ print.dgtf_param_comparison <- function(x, digits = 3L, ...) {
     }
 
     print(pt, row.names = FALSE)
-    cat(sprintf("---\n'*' indicates the truth lies within the %g%% credible interval\n",
-                100 * lvl))
+    if (has_truth)
+        cat(sprintf("---\n'*' indicates the truth lies within the %g%% credible interval\n",
+                    100 * lvl))
     invisible(x)
 }

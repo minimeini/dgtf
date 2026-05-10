@@ -558,21 +558,5 @@ print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
         cat(sprintf("  t with accept < 0.1  : %d\n", as.integer(d$n_low)))
     }
 
-    if (!is.null(x$ppc) && inherits(x$ppc, "dgtf_ppc")) {
-        cat("\nPosterior predictive check (attached)\n")
-        print(x$ppc)
-    } else {
-        cat("\n(no posterior predictive check attached - call ",
-            "posterior_predict(fit) and assign with ",
-            "`attr(fit, \"ppc\") <- ppc`)\n", sep = "")
-    }
-
-    if (!is.null(x$error)) {
-        if (!is.null(x$error$fitted))
-            cat("In-sample error    :", format(x$error$fitted), "\n")
-        if (!is.null(x$error$forecast))
-            cat("Out-of-sample error:", format(x$error$forecast), "\n")
-    }
-
     invisible(x)
 }

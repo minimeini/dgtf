@@ -182,18 +182,13 @@ Rcpp::List dgtf_infer(
     const arma::vec &y_in,
     const std::string &method,
     const Rcpp::List &method_settings,
-    const std::string &loss_func = "quadratic",
-    const unsigned int &k = 1,
     const Rcpp::Nullable<Rcpp::NumericMatrix> &X = R_NilValue, // p x (ntime + 1), zero inflation
-    const Rcpp::Nullable<unsigned int> &tstart_forecast = R_NilValue,
-    const Rcpp::Nullable<unsigned int> &tend_forecast = R_NilValue,
     const bool &add_y0 = false)
 {
     // Model model = dgtf_initialize(model_settings);
     Model model(model_settings);
     std::map<std::string, AVAIL::Algo> algo_list = AVAIL::algo_list;
     std::string algo_name = tolower(method);
-    std::map<std::string, AVAIL::Dist> obs_list = ObsDist::obs_list;
 
     arma::vec y;
     if (add_y0)
@@ -216,9 +211,7 @@ Rcpp::List dgtf_infer(
         model.zero.setX(Xzero);
     }
 
-    Rcpp::List output, forecast, error;
-    arma::mat psi(nT + 1, 3);
-    arma::vec ci_prob = {0.025, 0.5, 0.975};
+    Rcpp::List output;
 
     switch (algo_list[algo_name])
     {
@@ -226,136 +219,50 @@ Rcpp::List dgtf_infer(
     {
         y.clamp(0.01 / static_cast<double>(model.nP), y.max());
         LBA::LinearBayes linear_bayes(method_settings);
-
-        auto start = std::chrono::high_resolution_clock::now();
         linear_bayes.filter(model, y);
         linear_bayes.smoother(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-
         output = linear_bayes.get_output(model);
-
-        {
-            Rcpp::List tmp = linear_bayes.forecast_error(model, y, 1000, loss_func, k, tstart_forecast, tend_forecast);
-            error["forecast"] = tmp;
-        }
-
-        {
-            Rcpp::List tmp = linear_bayes.fitted_error(model, y, 1000, loss_func);
-            error["fitted"] = tmp;
-        }
-
         break;
     } // case Linear Bayes
     case AVAIL::Algo::MCS:
     {
         SMC::MCS mcs(model, method_settings);
-
-        auto start = std::chrono::high_resolution_clock::now();
         mcs.infer(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-
         output = mcs.get_output();
-
-        {
-            Rcpp::List tmp = mcs.forecast_error(model, y, loss_func, k, tstart_forecast, tend_forecast);
-            error["forecast"] = tmp;
-        }
-
-        {
-            Rcpp::List tmp = mcs.fitted_error(model, y, loss_func);
-            error["fitted"] = tmp;
-        }
-
         break;
     } // case MCS
     case AVAIL::Algo::FFBS:
     {
         SMC::FFBS ffbs(model, method_settings);
-        auto start = std::chrono::high_resolution_clock::now();
         ffbs.infer(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
         output = ffbs.get_output();
-
-        {
-            Rcpp::List tmp = ffbs.forecast_error(model, y, loss_func, k, tstart_forecast, tend_forecast);
-            error["forecast"] = tmp;
-        }
-
-        {
-            Rcpp::List tmp = ffbs.fitted_error(model, y, loss_func);
-            error["fitted"] = tmp;
-        }
         break;
     } // case FFBS
     case AVAIL::Algo::TFS:
     {
         SMC::TFS tfs(model, method_settings);
-
-        auto start = std::chrono::high_resolution_clock::now();
         tfs.infer(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-
         output = tfs.get_output();
-
-        {
-            Rcpp::List tmp = tfs.forecast_error(model, y, loss_func, k, tstart_forecast, tend_forecast);
-            error["forecast"] = tmp;
-        }
-        
-        {
-            Rcpp::List tmp = tfs.fitted_error(model, y, loss_func);
-            error["fitted"] = tmp;
-        }
-
         break;
     } // case TFS
     case AVAIL::Algo::ParticleLearning:
     {
         SMC::PL pl(model, method_settings);
-
-        auto start = std::chrono::high_resolution_clock::now();
         pl.infer(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-
         output = pl.get_output();
-
-        {
-            Rcpp::List tmp = pl.forecast_error(model, y, loss_func, k, tstart_forecast, tend_forecast);
-            error["forecast"] = tmp;
-        }
-        
-        {
-            Rcpp::List tmp = pl.fitted_error(model, y, loss_func);
-            error["fitted"] = tmp;
-        }
         break;
     } // case particle learning
     case AVAIL::Algo::MCMC:
     {
         MCMC::Disturbance mcmc(model, method_settings);
-
-        auto start = std::chrono::high_resolution_clock::now();
         mcmc.infer(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-
         output = mcmc.get_output();
         break;
     }
     case AVAIL::Algo::HybridVariation:
     {
         VB::Hybrid hvb(model, method_settings);
-
-        auto start = std::chrono::high_resolution_clock::now();
         hvb.infer(model, y);
-        auto stop = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
-
         output = hvb.get_output();
         break;
     }
@@ -368,7 +275,6 @@ Rcpp::List dgtf_infer(
 
     Rcpp::List out;
     out["fit"] = output;
-    out["error"] = error;
 
     return out;
 }

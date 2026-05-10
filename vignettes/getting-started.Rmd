@@ -146,9 +146,7 @@ fit_mcmc <- dgtf(ytrain, mod, prior,
   control = mcmc_control(
     iter = 5000,
     warmup = 2000,
-    thin = 5,
-    epsilon = 0.005,
-    L = 50
+    thin = 5
   )
 )
 

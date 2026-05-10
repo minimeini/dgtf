@@ -7,8 +7,6 @@
 #'
 #' @section Choosing a method:
 #'
-#' - `"vb"`: mean-field variational Bayes. The simplest variational
-#'   family. Use [`vb_control()`] to tune.
 #' - `"hva"`: hybrid variational approximation that combines SMC and
 #'   variational updates (Tang et al., the engine featured in the
 #'   manuscript). Fast; good for real-time applications. Also tuned via
@@ -16,10 +14,6 @@
 #' - `"mcmc"`: disturbance Metropolis-Hastings within Gibbs.
 #'   Gold-standard uncertainty quantification; slower. Use
 #'   [`mcmc_control()`] to tune.
-#' - `"smc"`, `"ffbs"`, `"tfs"`, `"mcs"`, `"pl"`: sequential Monte Carlo
-#'   smoothers. Use [`smc_control()`] to tune.
-#' - `"linear_bayes"`: linear-Bayes approximation (closed-form, fastest).
-#'   Use [`lba_control()`] to tune.
 #'
 #' @section Inference rule:
 #' Anything supplied a prior in `prior` is treated as unknown and
@@ -30,13 +24,9 @@
 #'   a matrix for multivariate observations).
 #' @param model A [`dgtf_model`] object.
 #' @param prior A [`dgtf_prior`] object (default: empty -> all parameters fixed).
-#' @param method One of `"vb"`, `"hva"`, `"mcmc"`, `"smc"`, `"ffbs"`,
-#'   `"tfs"`, `"mcs"`, `"pl"`, `"linear_bayes"`.
+#' @param method `"hva"` or `"mcmc"`.
 #' @param control A method-specific control object. If `NULL`, sensible
 #'   defaults are used.
-#' @param loss_func Loss for the in-sample / forecast error tables.
-#'   `"quadratic"` (RMSE) or `"absolute"` (MAE).
-#' @param horizon Forecast horizon `k` for the forecast-error table.
 #' @param seed Optional integer seed.
 #' @param verbose If `TRUE`, returns the lowered model and method
 #'   settings *without* calling the C++ engine. Useful for debugging
@@ -51,17 +41,14 @@
 #' sim <- dgtf_simulate(mod, ntime = 200)
 #' fit <- dgtf(sim$y, mod,
 #'             prior = dgtf_prior(W = inv_gamma(1, 1)),
-#'             method = "vb",
+#'             method = "hva",
 #'             control = vb_control(iter = 200))
 #' }
 dgtf <- function(y,
                  model,
                  prior   = dgtf_prior(),
-                 method  = c("vb", "hva", "mcmc", "smc", "ffbs", "tfs",
-                             "mcs", "pl", "linear_bayes"),
+                 method  = c("hva", "mcmc"),
                  control = NULL,
-                 loss_func = c("quadratic", "absolute"),
-                 horizon   = 1L,
                  seed      = NULL,
                  verbose   = FALSE) {
 
@@ -72,7 +59,6 @@ dgtf <- function(y,
         stop("`prior` must be a `dgtf_prior` (see `?dgtf_prior`).",
              call. = FALSE)
     method    <- match.arg(method)
-    loss_func <- match.arg(loss_func)
     if (!is.numeric(y))
         stop("`y` must be numeric.", call. = FALSE)
     if (!is.null(seed)) set.seed(seed)
@@ -102,9 +88,7 @@ dgtf <- function(y,
         model_settings = model_settings,
         y_in           = as.numeric(y),
         method         = method,
-        method_settings = method_settings,
-        loss_func      = loss_func,
-        k              = as.integer(horizon)
+        method_settings = method_settings
     )
     elapsed <- difftime(Sys.time(), t0, units = "secs")
 
@@ -128,7 +112,6 @@ dgtf <- function(y,
     structure(
         list(
             fit     = raw$fit,
-            error   = raw$error,
             y       = as.numeric(y),
             model   = model,
             prior   = prior,
