@@ -394,22 +394,31 @@ dgtf_compare_params <- function(fits, truth, level = 0.95) {
 
 #' @export
 print.dgtf_param_comparison <- function(x, digits = 3L, ...) {
-    np <- length(unique(x$parameter))
-    nm <- length(unique(x$model))
+    np  <- length(unique(x$parameter))
+    nm  <- length(unique(x$model))
+    lvl <- attr(x, "level") %||% 0.95
     cat(sprintf("<dgtf_param_comparison: %d parameter%s x %d model%s, level = %.0f%%>\n",
                 np, if (np == 1L) "" else "s",
                 nm, if (nm == 1L) "" else "s",
-                100 * (attr(x, "level") %||% 0.95)))
+                100 * lvl))
 
     pt <- as.data.frame(unclass(x), stringsAsFactors = FALSE)
-    for (col in setdiff(names(pt), c("parameter", "model"))) {
-        v <- pt[[col]]
-        pt[[col]] <- if (col == "coverage") {
-            ifelse(is.na(v), "", ifelse(v, "yes", "no"))
-        } else {
-            formatC(v, digits = digits, format = "g")
-        }
+
+    # Convert the logical coverage column into a blank-named asterisk
+    # column before the numeric formatting loop runs.
+    if ("coverage" %in% names(pt)) {
+        sig <- ifelse(is.na(pt$coverage), " ",
+                      ifelse(pt$coverage, "*", " "))
+        pt$coverage <- NULL
+        pt[[" "]]   <- sig
     }
+
+    for (col in setdiff(names(pt), c("parameter", "model", " "))) {
+        pt[[col]] <- formatC(pt[[col]], digits = digits, format = "g")
+    }
+
     print(pt, row.names = FALSE)
+    cat(sprintf("---\n'*' indicates the truth lies within the %g%% credible interval\n",
+                100 * lvl))
     invisible(x)
 }

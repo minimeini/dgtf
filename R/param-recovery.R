@@ -16,12 +16,19 @@
 #'   Unknown names are ignored with a warning.
 #' @param level Credible-interval level for the `coverage` column
 #'   (default `0.95`).
+#' @param digits Number of digits to round the numeric columns to
+#'   for display (default `3`).
 #'
-#' @return A data.frame with one row per matched parameter, columns:
-#'   `parameter`, `truth`, `mean`, `median`, `sd`, `q_lo`, `q_hi`,
-#'   `bias` (`mean - truth`), `mae`, `rmse`, `crps`, `coverage` 
-#'   (logical: truth in `[q_lo, q_hi]`). Returns
-#'   `NULL` if there are no posterior draws or no name matches.
+#' @return A data.frame of class `param_recovery` with one row per
+#'   matched parameter and columns `parameter`, `truth`, `mean`,
+#'   `median`, `sd`, `q_lo`, `q_hi`, `bias` (`mean - truth`), `mae`,
+#'   `rmse`, `crps`, `coverage` (logical: truth in `[q_lo, q_hi]`).
+#'   The default print method suppresses the `coverage` column and
+#'   instead appends a `Signif` column whose value is `"*"` when the
+#'   truth lies inside the credible interval, with the convention
+#'   explained in a footer (cf. `print.summary.lm`).
+#'   Returns `NULL` if there are no posterior draws or no name
+#'   matches.
 #'
 #' @export
 #' @examples
@@ -53,30 +60,23 @@ param_recovery <- function(object, truth, level = 0.95, digits = 3) {
     qs    <- apply(sub, 2, stats::quantile,
                    probs = c(alpha / 2, 1 - alpha / 2))
 
-    means <- apply(sub, 2, mean)
+    means   <- apply(sub, 2, mean)
     medians <- apply(sub, 2, stats::median)
-    sds <- apply(sub, 2, stats::sd)
-    q_lo <- qs[1, ]
-    q_hi <- qs[2, ]
-    tval <- truth_vec[matched]
-    mae <- vapply(
-        matched,
-        function(p) mean(abs(sub[, p] - tval[p])),
-        numeric(1)
-    )
-    rmse <- vapply(
-        matched,
-        function(p) sqrt(mean((sub[, p] - tval[p])^2)),
-        numeric(1)
-    )
-    crps <- vapply(
-        matched,
-        function(p) .crps_sample(sub[, p], tval[p]),
-        numeric(1)
-    )
+    sds     <- apply(sub, 2, stats::sd)
+    q_lo    <- qs[1, ]
+    q_hi    <- qs[2, ]
+    tval    <- truth_vec[matched]
+    mae <- vapply(matched,
+                  function(p) mean(abs(sub[, p] - tval[p])),
+                  numeric(1))
+    rmse <- vapply(matched,
+                   function(p) sqrt(mean((sub[, p] - tval[p])^2)),
+                   numeric(1))
+    crps <- vapply(matched,
+                   function(p) .crps_sample(sub[, p], tval[p]),
+                   numeric(1))
 
-
-    data.frame(
+    out <- data.frame(
         parameter = matched,
         truth     = unname(tval),
         mean      = round(unname(means), digits),
@@ -92,6 +92,23 @@ param_recovery <- function(object, truth, level = 0.95, digits = 3) {
         row.names = NULL,
         stringsAsFactors = FALSE
     )
+    structure(out,
+              class = c("param_recovery", "data.frame"),
+              level = level)
+}
+
+#' @export
+#' @export
+print.param_recovery <- function(x, ...) {
+    lvl <- attr(x, "level") %||% 0.95
+    df  <- as.data.frame(unclass(x), stringsAsFactors = FALSE)
+    sig <- ifelse(df$coverage, "*", " ")
+    df$coverage <- NULL
+    df[[" "]]   <- sig
+    print(df, row.names = FALSE, ...)
+    cat(sprintf("---\n'*' indicates the truth lies within the %g%% credible interval\n",
+                100 * lvl))
+    invisible(x)
 }
 
 # Coerce `truth` (named numeric or named list) into a named numeric

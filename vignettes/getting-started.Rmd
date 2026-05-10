@@ -103,13 +103,9 @@ fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-summary(fit, truth = list(
-  W = sim$model$err$params$var,
-  seas = sim$model$seasonality$init,
-  rho = sim$model$obs_init[2],
-  par1 = sim$model$lag$params$par1,
-  par2 = sim$model$lag$params$par2
-))
+summary(fit)
+truth_list <- list(W = 0.01, seas = 2, rho = 30, par1 = 1.35, par2 = 0.32)
+param_recovery(fit, truth_list, digits = 3)
 ```
 
 
@@ -156,13 +152,7 @@ fit_mcmc <- dgtf(ytrain, mod, prior,
   )
 )
 
-summary(fit_mcmc, truth = list(
-  W = sim$model$err$params$var,
-  seas = sim$model$seasonality$init,
-  rho = sim$model$obs_init[2],
-  par1 = sim$model$lag$params$par1,
-  par2 = sim$model$lag$params$par2
-))
+summary(fit_mcmc)
 
 ```
 
@@ -241,6 +231,8 @@ truth_list <- list(
 
 dgtf_compare(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
 dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
+
+param_recovery(fit, truth_list)
 ```
 
 
