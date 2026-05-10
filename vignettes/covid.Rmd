@@ -738,7 +738,6 @@ dgtf_compare(
 ```{r}
 plot_dgtf_lag(list(
   DH = fit,
-  DL = dl2,
-  AR = ar_fit
+  DL = dl2
 ), xlim = 14)
 ```
