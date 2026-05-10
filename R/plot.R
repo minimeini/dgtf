@@ -162,6 +162,21 @@
         ))
     }
 
+    # Branch 2b: dgtf_forecast -- only yhat
+    if (inherits(x, "dgtf_forecast")) {
+        if (!what %in% c("yhat", "y"))
+            stop(sprintf(
+                "Unknown `what = %s` for dgtf_forecast; only 'yhat' supported.",
+                what), call. = FALSE)
+        
+        qm <- x$quantiles
+        if (is.null(qm) || nrow(qm) == 0L)
+            stop("Forecast object has no `quantiles`.", call. = FALSE)
+        return(.dgtf_band_from_matrix(
+            as.matrix(qm), time = time, name = name, has_ribbon = TRUE
+        ))
+    }
+
     # Branch 3: T x 3 quantile matrix or data frame (lower/median/upper).
     if ((is.matrix(x) || is.data.frame(x)) && ncol(x) == 3L) {
         return(.dgtf_band_from_matrix(as.matrix(x),
@@ -1372,4 +1387,249 @@ plot_dgtf_y <- function(x,
         legend.position = "right",
         legend.name     = NULL
     )
+}
+
+#' Multi-method in-sample + forecast comparison plot
+#'
+#' Side-by-side equivalent of [`plot_dgtf_y()`] for an arbitrary number
+#' of method/model variants. For each method, an in-sample posterior
+#' predictive band is drawn (from the fit's PPC, cached or computed
+#' on the fly), and -- when a forecast is supplied -- a forecast band
+#' is drawn continuing the time axis past the train/test boundary.
+#'
+#' Each method gets a single colour applied to *both* its in-sample
+#' band and its forecast band; segments are visually distinguished by
+#' a vertical dotted line at the train/test split rather than by a
+#' second colour channel. This keeps the legend readable across many
+#' methods.
+#'
+#' @param fits Named list. Each entry is a `dgtf_fit` or a `dgtf_ppc`.
+#'   `dgtf_fit` entries use their cached PPC if present
+#'   (`attr(., "ppc")`), otherwise run [`posterior_predict()`] on the
+#'   fly with `nrep` and `level`.
+#' @param forecasts Named list of `dgtf_forecast` objects, with names
+#'   matching a subset of `names(fits)`. Methods without a forecast
+#'   entry are drawn in-sample only. `NULL` (default) draws in-sample
+#'   only for every method.
+#' @param truth_in Optional numeric vector for the in-sample truth.
+#'   `NULL` (default) auto-fills with the first fit's `$y` (assumed
+#'   shared across methods).
+#' @param truth_out Optional numeric vector for the out-of-sample
+#'   truth. `NULL` (default) auto-fills with the first forecast's
+#'   `$ypred_true` when present.
+#' @param show_truth `FALSE` suppresses all truth overlays.
+#' @param time_in,time_out Optional numeric vectors giving the x-axis
+#'   values for the two segments. Defaults: `0:(n-1)` for in-sample
+#'   and `n:(n+h-1)` for out-of-sample, so the segments connect.
+#' @param level,nrep Forwarded to [`posterior_predict()`] for fits
+#'   without a cached PPC.
+#' @param palette Optional named character vector of colours.
+#' @param alpha Ribbon transparency (default 0.4).
+#' @param split_line If `TRUE` (default), draw a dotted vertical line
+#'   at the train/test boundary. Set `FALSE` to suppress.
+#' @param xlab,ylab,main Axis / title labels.
+#' @param theme A ggplot2 theme.
+#' @param ... Unused.
+#'
+#' @return A `ggplot` object.
+#'
+#' @export
+plot_dgtf_y_compare <- function(fits,
+                                forecasts  = NULL,
+                                truth_in   = NULL,
+                                truth_out  = NULL,
+                                show_truth = TRUE,
+                                time_in    = NULL,
+                                time_out   = NULL,
+                                level      = 0.95,
+                                nrep       = 100L,
+                                palette    = NULL,
+                                alpha      = 0.4,
+                                split_line = TRUE,
+                                xlab       = "Time",
+                                ylab       = expression(y[t]),
+                                main       = NULL,
+                                theme      = ggplot2::theme_minimal(),
+                                ...) {
+    if (!is.list(fits) || length(fits) == 0L ||
+        is.null(names(fits)) || any(!nzchar(names(fits))))
+        stop("`fits` must be a named, non-empty list.", call. = FALSE)
+
+    nm <- names(fits)
+
+    if (is.null(forecasts)) forecasts <- list()
+    if (!is.list(forecasts))
+        stop("`forecasts` must be NULL or a named list.", call. = FALSE)
+    extra <- setdiff(names(forecasts), nm)
+    if (length(extra))
+        stop("`forecasts` has names not in `fits`: ",
+             paste(extra, collapse = ", "), call. = FALSE)
+    if (length(forecasts) > 0L &&
+        !all(vapply(forecasts, inherits, logical(1), "dgtf_forecast")))
+        stop("All `forecasts` entries must be `dgtf_forecast` objects.",
+             call. = FALSE)
+
+    band_list    <- list()
+    in_lengths   <- integer(0)
+    t_in_first   <- NULL
+    t_out_first  <- NULL
+    h_out_first  <- 0L
+    fc_seen      <- FALSE
+
+    for (i in seq_along(fits)) {
+        name <- nm[i]
+        x    <- fits[[i]]
+
+        # Resolve in-sample PPC.
+        if (inherits(x, "dgtf_fit")) {
+            ppc <- attr(x, "ppc")
+            if (is.null(ppc) || !inherits(ppc, "dgtf_ppc") ||
+                is.null(ppc$yhat)) {
+                ppc <- posterior_predict(x, nrep = nrep, level = level)
+            }
+        } else if (inherits(x, "dgtf_ppc")) {
+            ppc <- x
+        } else {
+            stop(sprintf(
+                "`fits[[\"%s\"]]` must be a `dgtf_fit` or `dgtf_ppc` (got class: %s).",
+                name, paste(class(x), collapse = "/")), call. = FALSE)
+        }
+        qm_in <- ppc$yhat
+        if (is.null(qm_in))
+            stop(sprintf("`fits[[\"%s\"]]` has no `yhat`. Re-run posterior_predict() with nrep > 0.",
+                         name), call. = FALSE)
+
+        n_in <- nrow(qm_in)
+        t_in <- if (is.null(time_in)) as.numeric(seq_len(n_in) - 1L)
+                else as.numeric(time_in)
+        if (length(t_in) != n_in)
+            stop(sprintf(
+                "`time_in` length %d != in-sample length %d for `%s`.",
+                length(t_in), n_in, name), call. = FALSE)
+        in_lengths <- c(in_lengths, n_in)
+        if (is.null(t_in_first)) t_in_first <- t_in
+
+        band_list[[length(band_list) + 1L]] <- data.frame(
+            time       = t_in,
+            lower      = as.numeric(qm_in[, 1L]),
+            central    = as.numeric(qm_in[, 2L]),
+            upper      = as.numeric(qm_in[, 3L]),
+            name       = name,         # *same* name as the forecast band
+            has_ribbon = TRUE,
+            stringsAsFactors = FALSE
+        )
+
+        # Optional forecast band.
+        if (name %in% names(forecasts)) {
+            fc <- forecasts[[name]]
+            qm_out <- fc$quantiles
+            if (is.null(qm_out) || nrow(qm_out) == 0L) next
+            h_out <- nrow(qm_out)
+            fc_seen <- TRUE
+
+            t_out <- if (is.null(time_out)) {
+                step <- if (n_in >= 2L) t_in[n_in] - t_in[n_in - 1L] else 1
+                t_in[n_in] + step * seq_len(h_out)
+            } else {
+                as.numeric(time_out)
+            }
+            if (length(t_out) != h_out)
+                stop(sprintf(
+                    "`time_out` length %d != forecast horizon %d for `%s`.",
+                    length(t_out), h_out, name), call. = FALSE)
+            if (is.null(t_out_first)) {
+                t_out_first <- t_out
+                h_out_first <- h_out
+            }
+
+            band_list[[length(band_list) + 1L]] <- data.frame(
+                time       = t_out,
+                lower      = as.numeric(qm_out[, "lower"]),
+                central    = as.numeric(qm_out[, "median"]),
+                upper      = as.numeric(qm_out[, "upper"]),
+                name       = name,         # *same name* -> same color
+                has_ribbon = TRUE,
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+
+    # Sanity-check in-sample lengths match (otherwise the split line
+    # is ambiguous). Warn and use the modal length.
+    if (length(unique(in_lengths)) > 1L)
+        warning("In-sample lengths differ across fits; using the maximum ",
+                "for the split line. Different time axes per method are ",
+                "not supported here.", call. = FALSE)
+    n_in_eff <- max(in_lengths)
+    split_x  <- t_in_first[n_in_eff]
+
+    # Truth overlay. Single "Truth" name keeps the dashed line continuous
+    # across the boundary, matching plot_dgtf_y.
+    if (isTRUE(show_truth)) {
+        if (is.null(truth_in) && inherits(fits[[1L]], "dgtf_fit"))
+            truth_in <- as.numeric(fits[[1L]]$y)
+        if (is.null(truth_out) && length(forecasts) > 0L)
+            truth_out <- forecasts[[1L]]$ypred_true
+    } else {
+        truth_in <- NULL
+        truth_out <- NULL
+    }
+
+    truth_rows <- NULL
+    if (!is.null(truth_in)) {
+        truth_in <- as.numeric(truth_in)
+        if (length(truth_in) != n_in_eff)
+            stop(sprintf("`truth_in` length %d != in-sample length %d.",
+                         length(truth_in), n_in_eff), call. = FALSE)
+        truth_rows <- data.frame(
+            time = t_in_first, lower = NA_real_,
+            central = truth_in, upper = NA_real_,
+            name = "Truth", has_ribbon = FALSE,
+            stringsAsFactors = FALSE)
+    }
+    if (!is.null(truth_out) && length(truth_out) > 0L &&
+        h_out_first > 0L) {
+        truth_out <- as.numeric(truth_out)
+        if (length(truth_out) < h_out_first)
+            stop(sprintf("`truth_out` length %d < forecast horizon %d.",
+                         length(truth_out), h_out_first), call. = FALSE)
+        truth_out <- truth_out[seq_len(h_out_first)]
+        truth_rows <- rbind(truth_rows, data.frame(
+            time = t_out_first, lower = NA_real_,
+            central = truth_out, upper = NA_real_,
+            name = "Truth", has_ribbon = FALSE,
+            stringsAsFactors = FALSE))
+    }
+
+    bands <- do.call(rbind, band_list)
+    if (!is.null(truth_rows)) bands <- rbind(bands, truth_rows)
+
+    # Build per-method palette. .dgtf_palette handles the named-or-not
+    # case; truth gets its own dashed-black styling via .truth_pattern
+    # matching inside .plot_dgtf_band.
+    method_names <- unique(bands$name[!grepl(.truth_pattern,
+                                             bands$name,
+                                             ignore.case = TRUE)])
+    cols <- .dgtf_palette(method_names, palette)
+
+    p <- .plot_dgtf_band(
+        bands,
+        palette         = cols,
+        alpha           = alpha,
+        xlab            = xlab,
+        ylab            = ylab,
+        main            = main,
+        theme           = theme,
+        legend.position = "right",
+        legend.name     = "Method"
+    )
+
+    if (isTRUE(split_line) && fc_seen) {
+        p <- p + ggplot2::geom_vline(
+            xintercept = split_x,
+            linetype   = "dotted",
+            color      = "grey50",
+            alpha      = 0.7)
+    }
+    p
 }

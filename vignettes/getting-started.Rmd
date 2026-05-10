@@ -78,7 +78,7 @@ you supplied to `dgtf_model()`.
 
 ```{r prior}
 prior <- dgtf_prior(
-  seasonality = normal(1, 1),
+  seasonality = normal(0, 10),
   W           = inv_gamma(1, 1),
   rho         = inv_gamma(1, 1),
   lag         = list(par1 = normal(0, 1), par2 = inv_gamma(1, 1))
@@ -119,14 +119,13 @@ plot(fit, what = "W")
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
-ppc <- posterior_predict(fit, nrep = 100, Rt = Rt_train)   # truth in a sim study
-attr(fit, "ppc") <- ppc
-summary(ppc)
-p = plot(ppc, what = "yhat", truth = ytrain)
+attr(fit, "ppc") <- posterior_predict(fit, nrep = 100, Rt = Rt_train)   # truth in a sim study
+summary(attr(fit, "ppc"))
+plot(fit, what = "yhat", truth = ytrain)
 ```
 
 ```{r}
-fc = dgtf_forecast_fit(fit, h = 10, ypred_true = ytest)
+fc <- dgtf_forecast_fit(fit, h = 10, ypred_true = ytest)
 summary(fc)
 plot_dgtf_y(fit, fc)
 # plot_dgtf_y(ppc, fc, truth_in = fit$y)
@@ -241,11 +240,16 @@ one-line shortcuts:
 
 ```{r canonical}
 set.seed(123)
+m1_init <- dgtf_hawkes(
+  meanlog = 1.35,
+  sigma2 = 0.32,
+  seasonality = seas_period(1, init = 2)
+)
 m1_fit <- dgtf(
   y = ytrain,
-  model = mod,
+  model = m1_init,
   prior = dgtf_prior(
-    seasonality = normal(1, 1),
+    seasonality = normal(0, 10),
     rho = inv_gamma(1, 1),
     lag = list(
       par1 = normal(0, 1),
@@ -258,22 +262,20 @@ m1_fit <- dgtf(
     n_sample = 5000,
     n_particle = 500,
     use_discount = TRUE,
-    discount_factor = 0.92
+    discount_factor = 0.9
   )
 )
-plot(m1_fit, what = "Rt")
+attr(m1_fit, "ppc") <- posterior_predict(m1_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
+plot(m1_fit, what = "Rt", truth = Rt_train)
+m1_fc <- dgtf_forecast_fit(m1_fit, h = 10, ypred_true = ytest)
 
-m1_ppc <- posterior_predict(m1_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
-summary(m1_ppc)
-m1_fc <- dgtf_forecast_fit(m1_fit, h = 3, ypred_true = ytest[1:3])
 
 m2_prior <- dgtf_prior(
-  seasonality = normal(1, 1),
+  seasonality = normal(0, 10),
   W           = inv_gamma(1, 1),
   rho         = inv_gamma(1, 1),
   lag         = list(par1 = dist_beta(1.5, 2))
 )
-
 m2_init <- dgtf_distributed_lag(
   r = 4,
   kappa = 0.395,
@@ -286,13 +288,13 @@ m2_fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-m2_ppc <- posterior_predict(m2_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
-summary(m2_ppc)
-plot(m2_ppc, what = "yhat")
+attr(m2_fit, "ppc") <- posterior_predict(m2_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
+m2_fc <- dgtf_forecast_fit(m2_fit, h = 10, ypred_true = ytest)
+
 
 set.seed(123)
 m3_prior <- dgtf_prior(
-  seasonality = normal(1, 1),
+  seasonality = normal(0, 10),
   W = inv_gamma(1, 1),
   rho = inv_gamma(1, 1)
 )
@@ -308,14 +310,13 @@ m3_fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-m3_ppc <- posterior_predict(m3_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
-summary(m3_ppc)
-plot(m3_ppc, what = "yhat")
+attr(m3_fit, "ppc") <- posterior_predict(m3_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
+m3_fc <- dgtf_forecast_fit(m3_fit, h = 10, ypred_true = ytest)
 
 
 set.seed(123)
 m4_prior <- dgtf_prior(
-  seasonality = normal(1, 1),
+  seasonality = normal(0, 10),
   W = inv_gamma(1, 1)
 )
 m4_init <- dgtf_poisson_ar(
@@ -330,24 +331,26 @@ m4_fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-m4_ppc <- posterior_predict(m4_fit,
+attr(m4_fit, "ppc") <- posterior_predict(m4_fit,
   nrep = 100,
-  Rt = log1p(exp(c(sim$psi)))
+  Rt = Rt_train
 ) # truth in a sim study
-summary(m4_ppc)
-plot(m4_ppc, what = "yhat")
+m4_fc <- dgtf_forecast_fit(m4_fit, h = 10, ypred_true = ytest)
 
 ```
 
 ```{r}
+plot_dgtf_y(fit, fc)
+plot_dgtf_y(m1_fit, m1_fc)
+
 dgtf_compare_plot(
   list(
-    M0 = ppc,
-    M1 = m1_ppc,
-    M2 = m2_ppc,
-    M3 = m3_ppc,
-    M4 = m4_ppc,
-    True = c(sim$y)
+    M0 = fit,
+    M1 = m1_fit,
+    M2 = m2_fit,
+    M3 = m3_fit,
+    M4 = m4_fit,
+    True = ytrain
   ),
   what = "yhat"
 )
@@ -361,14 +364,75 @@ dgtf_compare_plot(
   ),
   what = "Rt"
 )
+```
 
+```{r}
 dgtf_compare(list(
   M0 = fit,
   M1 = m1_fit,
   M2 = m2_fit,
   M3 = m3_fit,
   M4 = m4_fit
+), Rt_truth = Rt_train)
+```
+
+<dgtf_comparison (dgtf_fit): 5 rows, level = 95%>
+ model n_param log_marglik crps_y chi_y coverage_y width_y interval_score_y elapsed_total elapsed_optim elapsed_sample mae_Rt rmse_Rt coverage_Rt interval_score_Rt
+    M0       5      -0.461   32.5  0.97      0.965     242              250        157.4s        103.8s          53.6s  0.117   0.152        0.91             0.483
+    M1       4       0.878   34.9  1.03       0.97     261              270        160.8s        100.4s          60.4s  0.137   0.181       0.724              1.03
+    M2       5       -0.19   33.8   1.1      0.965     239              261        147.3s         96.8s          50.5s  0.118   0.153       0.925             0.494
+    M3       3       -2.43   37.6  2.28      0.789     279              313        315.5s        208.8s         106.7s     NA      NA          NA                NA
+    M4       2    1.29e+03     17  18.5       0.97     218              221        328.6s        218.1s         110.4s     NA      NA          NA                NA
+
+```{r}
+dgtf_compare_params(list(
+  M0 = fit,
+  M1 = m1_fit,
+  M2 = m2_fit,
+  M3 = m3_fit,
+  M4 = m4_fit
 ))
+```
+
+```{r}
+dgtf_compare(list(
+  M0 = fc,
+  M1 = m1_fc,
+  M2 = m2_fc,
+  M3 = m3_fc
+  # M4 = m4_fc
+))
+```
+
+<dgtf_comparison (dgtf_forecast): 4 rows, level = 95%>
+ model horizon n_draws coverage    chi crps
+    M0      10 500,000      0.9 0.0795 24.9
+    M1      10 500,000        1 0.0244 11.4
+    M2      10 500,000      0.7  0.116 32.4
+    M3      10 500,000        1  0.151 28.6
+
+```{r}
+dgtf_compare_plot(
+  list(M0 = fc, M1 = m1_fc, M2 = m2_fc, M3 = m3_fc, True = ytest),
+  what = "yhat",
+  time = length(ytrain) + seq_len(fc$horizon) # align x-axis with the forecast window
+)
+
+fits_list <- list(
+  M0 = fit,
+  M1 = m1_fit
+  # M2 = m2_fit,
+  # M3 = m3_fit
+)
+
+fcs_list <- list(
+  M0 = fc,
+  M1 = m1_fc
+  # M2 = m2_fc,
+  # M3 = m3_fc
+)
+
+plot_dgtf_y_compare(fits_list, fcs_list)
 ```
 
 # 7. EpiEstim baseline

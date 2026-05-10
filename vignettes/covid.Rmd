@@ -45,7 +45,7 @@ mod <- dgtf_model(
 )
 
 prior <- dgtf_prior(
-  seasonality = normal(1, 1),
+  seasonality = normal(0, 10),
   W           = inv_gamma(1, 1),
   rho         = inv_gamma(1, 1),
   lag         = list(par1 = normal(0, 1), par2 = inv_gamma(1, 1))
