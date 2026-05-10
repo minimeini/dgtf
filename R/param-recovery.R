@@ -32,7 +32,7 @@
 #'                             rho  = sim$model$rho,
 #'                             seas = sim$model$seasonality$val))
 #' }
-param_recovery <- function(object, truth, level = 0.95) {
+param_recovery <- function(object, truth, level = 0.95, digits = 3) {
     if (!inherits(object, "dgtf_fit"))
         stop("`object` must be a `dgtf_fit`.", call. = FALSE)
     if (!is.numeric(level) || length(level) != 1L ||
@@ -79,15 +79,15 @@ param_recovery <- function(object, truth, level = 0.95) {
     data.frame(
         parameter = matched,
         truth     = unname(tval),
-        mean      = unname(means),
-        median    = unname(medians),
-        sd        = unname(sds),
-        q_lo      = unname(q_lo),
-        q_hi      = unname(q_hi),
-        bias      = unname(means - tval),
-        mae       = unname(mae),
-        rmse      = unname(rmse),
-        crps      = unname(crps),
+        mean      = round(unname(means), digits),
+        median    = round(unname(medians), digits),
+        sd        = round(unname(sds), digits),
+        q_lo      = round(unname(q_lo), digits),
+        q_hi      = round(unname(q_hi), digits),
+        bias      = round(unname(means - tval), digits),
+        mae       = round(unname(mae), digits),
+        rmse      = round(unname(rmse), digits),
+        crps      = round(unname(crps), digits),
         coverage  = unname((tval >= q_lo) & (tval <= q_hi)),
         row.names = NULL,
         stringsAsFactors = FALSE
