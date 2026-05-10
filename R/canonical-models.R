@@ -19,7 +19,7 @@
 # (sys_shift or sys_identity), which is supported by every inference
 # method (HVA, MCMC, SMC, LBA). The iterative form (sys_nbinom) is
 # mathematically equivalent for the distributed lag and Koyck models
-# but is not supported by the HVA engine, which lacks the nL fixup
+# but is not supported by HVA, which lacks the nL fixup
 # present in the MCMC and TFS code paths.
 
 

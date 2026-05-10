@@ -1,10 +1,15 @@
-.okabe_ito <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442",
-                "#0072B2", "#D55E00", "#CC79A7", "#000000")
+.okabe_ito <- c(
+    "#E69F00", "#56B4E9", "#009E73", "#F0E442",
+    "#0072B2", "#D55E00", "#CC79A7", "#000000"
+)
 .truth_pattern <- "^(true|truth)$"
-.default_ylab  <- function(what) switch(what,
-    psi  = expression(psi[t]),
-    Rt   = expression(R[t]),
-    yhat = expression(hat(y)[t]))
+.default_ylab <- function(what) {
+    switch(what,
+        psi  = expression(psi[t]),
+        Rt   = expression(R[t]),
+        yhat = expression(hat(y)[t])
+    )
+}
 
 
 .ts_targets <- c("Rt", "psi", "yhat")
@@ -15,10 +20,15 @@
 # any other single string is treated as a static-parameter name (validated
 # downstream against `.dgtf_static_draws(fit)$inferred`).
 .what_kind <- function(what) {
-    if (length(what) != 1L || !is.character(what))
+    if (length(what) != 1L || !is.character(what)) {
         stop("`what` must be a single string.", call. = FALSE)
-    if (what %in% .ts_targets)   return("ts")
-    if (what %in% .diag_targets) return("diag")
+    }
+    if (what %in% .ts_targets) {
+        return("ts")
+    }
+    if (what %in% .diag_targets) {
+        return("diag")
+    }
     "param"
 }
 
@@ -27,20 +37,23 @@
 # but falls through to identity in the switch, so we omit it here.
 .gain_fun <- function(name) {
     switch(name,
-        identity    = identity,
-        softplus    = function(z) log1p(exp(z)),
+        identity = identity,
+        softplus = function(z) log1p(exp(z)),
         exponential = exp,
-        ramp        = function(z) pmax(z, .Machine$double.eps),
+        ramp = function(z) pmax(z, .Machine$double.eps),
         stop(sprintf("Unknown gain '%s'; extend .gain_fun().", name),
-             call. = FALSE))
+            call. = FALSE
+        )
+    )
 }
 
 # Row-wise quantiles of an n x nsample draws matrix at the central
 # (1-level)/2, 0.5, 1-(1-level)/2 probabilities. Returns an n x 3 matrix.
 .row_quantiles <- function(draws, level = 0.95) {
     probs <- c((1 - level) / 2, 0.5, 1 - (1 - level) / 2)
-    out   <- t(apply(draws, 1L, stats::quantile,
-                     probs = probs, na.rm = TRUE, names = FALSE))
+    out <- t(apply(draws, 1L, stats::quantile,
+        probs = probs, na.rm = TRUE, names = FALSE
+    ))
     colnames(out) <- c("lower", "median", "upper")
     out
 }
@@ -49,9 +62,11 @@
 # attached and -- for Rt -- psi draws are unavailable).
 .require_ppc <- function(fit, level) {
     warning("No PPC attached to fit; running posterior_predict() with ",
-            "default settings (nrep = 100, no Rt reference). Attach one ",
-            "with `attr(fit, 'ppc') <- posterior_predict(fit, ...)` to ",
-            "avoid this on every plot call.", call. = FALSE)
+        "default settings (nrep = 100, no Rt reference). Attach one ",
+        "with `attr(fit, 'ppc') <- posterior_predict(fit, ...)` to ",
+        "avoid this on every plot call.",
+        call. = FALSE
+    )
     posterior_predict(fit, level = level)
 }
 
@@ -86,55 +101,73 @@
     #           use any attached PPC, otherwise warn + run on the fly.
     if (inherits(x, "dgtf_fit")) {
         if (what == "psi") {
-            qm <- x$fit$psi                         # n x 3
+            qm <- x$fit$psi # n x 3
         } else if (what == "Rt") {
             psi_draws <- tryCatch(extract_state_draws(x, "psi"),
-                                  error = function(e) NULL)
+                error = function(e) NULL
+            )
             if (!is.null(psi_draws)) {
                 gain_name <- x$model$gain$type %||% "identity"
-                h         <- .gain_fun(gain_name)
-                Rt_draws  <- h(psi_draws)           # n x nsample
-                qm        <- .row_quantiles(Rt_draws, level = level)
+                h <- .gain_fun(gain_name)
+                Rt_draws <- h(psi_draws) # n x nsample
+                qm <- .row_quantiles(Rt_draws, level = level)
             } else {
                 # Fallback: fits without stored psi draws fall back to PPC.
                 ppc <- attr(x, "ppc") %||% .require_ppc(x, level = level)
-                qm  <- ppc$Rt
-                if (is.null(qm))
+                qm <- ppc$Rt
+                if (is.null(qm)) {
                     stop("PPC has no `Rt` field. Re-run posterior_predict() ",
-                         "with a non-NULL `Rt` argument or attach a PPC ",
-                         "that contains it.", call. = FALSE)
+                        "with a non-NULL `Rt` argument or attach a PPC ",
+                        "that contains it.",
+                        call. = FALSE
+                    )
+                }
             }
         } else if (what == "yhat") {
             ppc <- attr(x, "ppc") %||% .require_ppc(x, level = level)
-            qm  <- ppc$yhat
-            if (is.null(qm))
+            qm <- ppc$yhat
+            if (is.null(qm)) {
                 stop("PPC has no `yhat` field. Re-run posterior_predict() ",
-                     "with `nrep > 0`.", call. = FALSE)
+                    "with `nrep > 0`.",
+                    call. = FALSE
+                )
+            }
         } else {
             stop(sprintf("Unknown `what = %s` for dgtf_fit.", what),
-                 call. = FALSE)
+                call. = FALSE
+            )
         }
-        return(.dgtf_band_from_matrix(qm, time = time, name = name,
-                                      has_ribbon = TRUE))
+        return(.dgtf_band_from_matrix(qm,
+            time = time, name = name,
+            has_ribbon = TRUE
+        ))
     }
 
     # Branch 2: dgtf_ppc
     if (inherits(x, "dgtf_ppc")) {
-        if (!what %in% c("Rt", "yhat"))
+        if (!what %in% c("Rt", "yhat")) {
             stop(sprintf("Unknown `what = %s` for dgtf_ppc.", what),
-                 call. = FALSE)
+                call. = FALSE
+            )
+        }
         qm <- x[[what]]
-        if (is.null(qm))
+        if (is.null(qm)) {
             stop(sprintf("PPC object has no `%s` field.", what),
-                 call. = FALSE)
-        return(.dgtf_band_from_matrix(qm, time = time, name = name,
-                                      has_ribbon = TRUE))
+                call. = FALSE
+            )
+        }
+        return(.dgtf_band_from_matrix(qm,
+            time = time, name = name,
+            has_ribbon = TRUE
+        ))
     }
 
     # Branch 3: T x 3 quantile matrix or data frame (lower/median/upper).
     if ((is.matrix(x) || is.data.frame(x)) && ncol(x) == 3L) {
-        return(.dgtf_band_from_matrix(as.matrix(x), time = time, name = name,
-                                      has_ribbon = TRUE))
+        return(.dgtf_band_from_matrix(as.matrix(x),
+            time = time, name = name,
+            has_ribbon = TRUE
+        ))
     }
 
     # Branch 4: numeric vector (or array with at most one non-trivial
@@ -142,25 +175,27 @@
     if (is.numeric(x) &&
         (is.null(dim(x)) || sum(dim(x) != 1L) <= 1L)) {
         x_vec <- as.numeric(x)
-        n     <- length(x_vec)
+        n <- length(x_vec)
         if (is.null(time)) {
             time <- seq(0, n - 1)
         } else {
             stopifnot(length(time) == n)
         }
         return(data.frame(
-            time       = as.numeric(time),
-            lower      = NA_real_,
-            central    = x_vec,
-            upper      = NA_real_,
-            name       = name %||% "Truth",
+            time = as.numeric(time),
+            lower = NA_real_,
+            central = x_vec,
+            upper = NA_real_,
+            name = name %||% "Truth",
             has_ribbon = FALSE,
             stringsAsFactors = FALSE
         ))
     }
 
     stop("Unsupported input to .dgtf_band(): ",
-         paste(class(x), collapse = "/"), call. = FALSE)
+        paste(class(x), collapse = "/"),
+        call. = FALSE
+    )
 }
 
 # Helper: turn a T x 3 quantile matrix into a long band data.frame.
@@ -168,23 +203,27 @@
     stopifnot(is.matrix(qm), ncol(qm) == 3L)
     n <- nrow(qm)
     if (is.null(time)) {
-        time <- seq(0, n - 1)        # matches plot_ts() convention in
-                                     # R/diagnostics.R:109 (time = 0:(T-1))
+        time <- seq(0, n - 1) # matches plot_ts() convention in
+        # R/diagnostics.R:109 (time = 0:(T-1))
     } else {
         # Allow callers to pass `time = band$time` for re-indexing truth onto
         # an existing band's axis. Recycle / truncate to length n if needed.
         if (length(time) != n) {
-            if (length(time) > n) time <- time[seq_len(n)]
-            else time <- c(time, seq(max(time) + 1L,
-                                      length.out = n - length(time)))
+            if (length(time) > n) {
+                time <- time[seq_len(n)]
+            } else {
+                time <- c(time, seq(max(time) + 1L,
+                    length.out = n - length(time)
+                ))
+            }
         }
     }
     data.frame(
-        time       = as.numeric(time),
-        lower      = as.numeric(qm[, 1]),
-        central    = as.numeric(qm[, 2]),
-        upper      = as.numeric(qm[, 3]),
-        name       = name %||% "Estimate",
+        time = as.numeric(time),
+        lower = as.numeric(qm[, 1]),
+        central = as.numeric(qm[, 2]),
+        upper = as.numeric(qm[, 3]),
+        name = name %||% "Estimate",
         has_ribbon = has_ribbon,
         stringsAsFactors = FALSE
     )
@@ -199,16 +238,23 @@
 # Returns a named character vector keyed by sort(unique(names)).
 .dgtf_palette <- function(names, palette = NULL) {
     names <- unique(names)
-    if (!length(names))
+    if (!length(names)) {
         return(stats::setNames(character(0), character(0)))
-    n    <- length(names)
-    auto <- if (n == 1L) "black"
-        else if (n <= 8L) .okabe_ito[seq_len(n)]
-        else grDevices::hcl.colors(n, palette = "Set 2")
+    }
+    n <- length(names)
+    auto <- if (n == 1L) {
+        "black"
+    } else if (n <= 8L) {
+        .okabe_ito[seq_len(n)]
+    } else {
+        grDevices::hcl.colors(n, palette = "Set 2")
+    }
     # Default assignment: alphabetical order over `names` -> Okabe-Ito sequence.
     out <- stats::setNames(auto, sort(names))[names]
 
-    if (is.null(palette)) return(out)
+    if (is.null(palette)) {
+        return(out)
+    }
 
     if (is.null(names(palette))) {
         # Unnamed vector: pin by position over `names`; if shorter than n,
@@ -232,42 +278,65 @@
                             theme = ggplot2::theme_minimal(),
                             legend.position = "right",
                             legend.name = "Method",
-                            legend.nrow = NULL) {
-    is_truth     <- grepl(.truth_pattern, bands$name, ignore.case = TRUE)
-    truth        <- bands[ is_truth, , drop = FALSE]
-    methods      <- bands[!is_truth, , drop = FALSE]
+                            legend.nrow = NULL,
+                            hline = NULL) {
+    is_truth <- grepl(.truth_pattern, bands$name, ignore.case = TRUE)
+    truth <- bands[is_truth, , drop = FALSE]
+    methods <- bands[!is_truth, , drop = FALSE]
     method_names <- unique(methods$name)
-    cols         <- .dgtf_palette(method_names, palette)
+    cols <- .dgtf_palette(method_names, palette)
 
-    p <- ggplot2::ggplot(methods, ggplot2::aes(x = time, y = central,
-                                               group = name)) +
+    p <- ggplot2::ggplot(methods, ggplot2::aes(
+        x = time, y = central,
+        group = name
+    )) +
+        (if (length(hline) && all(is.finite(hline))) {
+            ggplot2::geom_hline(
+                yintercept = as.numeric(hline),
+                linetype = "dashed",
+                color = "gray50",
+                linewidth = 0.4,
+                alpha = 0.7
+            )
+        } else {
+            NULL
+        }) +
         ggplot2::geom_ribbon(
             data = methods[methods$has_ribbon, , drop = FALSE],
             ggplot2::aes(ymin = lower, ymax = upper, fill = name),
-            alpha = alpha, na.rm = TRUE) +
+            alpha = alpha, na.rm = TRUE
+        ) +
         ggplot2::geom_line(ggplot2::aes(color = name), na.rm = TRUE) +
         ggplot2::scale_color_manual(name = legend.name, values = cols) +
-        ggplot2::scale_fill_manual( name = legend.name, values = cols) +
+        ggplot2::scale_fill_manual(name = legend.name, values = cols) +
         theme +
         ggplot2::labs(x = xlab, y = ylab, title = main) +
         ggplot2::theme(legend.position = legend.position)
 
-    if (!is.null(legend.nrow))
+    if (!is.null(legend.nrow)) {
         p <- p + ggplot2::guides(
             color = ggplot2::guide_legend(nrow = legend.nrow),
-            fill  = ggplot2::guide_legend(nrow = legend.nrow))
+            fill  = ggplot2::guide_legend(nrow = legend.nrow)
+        )
+    }
 
     if (nrow(truth)) {
         truth_names <- unique(truth$name)
         p <- p + ggplot2::geom_line(
             data = truth,
-            ggplot2::aes(x = time, y = central,
-                         linetype = name, group = name),
-            color = "black", inherit.aes = FALSE) +
+            ggplot2::aes(
+                x = time, y = central,
+                linetype = name, group = name
+            ),
+            color = "black", inherit.aes = FALSE
+        ) +
             ggplot2::scale_linetype_manual(
-                name   = NULL,
-                values = stats::setNames(rep("dashed", length(truth_names)),
-                                         truth_names))
+                name = NULL,
+                values = stats::setNames(
+                    rep("dashed", length(truth_names)),
+                    truth_names
+                )
+            )
     }
     p
 }
@@ -292,18 +361,20 @@
 .dgtf_param_long <- function(x, param, name = NULL, p_dim_hint = NULL) {
     if (inherits(x, "dgtf_fit")) {
         sd <- .dgtf_static_draws(x)
-        if (!param %in% sd$inferred)
+        if (!param %in% sd$inferred) {
             stop(sprintf(
                 "Parameter '%s' is not inferred for this fit. Inferred: %s",
-                param, paste(sd$inferred, collapse = ", ")), call. = FALSE)
-        m <- sd$draws[[param]]                 # nsample x p_dim
+                param, paste(sd$inferred, collapse = ", ")
+            ), call. = FALSE)
+        }
+        m <- sd$draws[[param]] # nsample x p_dim
         p <- ncol(m)
         return(data.frame(
-            name  = name %||% "Estimate",
+            name = name %||% "Estimate",
             index = rep(seq_len(p), each = nrow(m)),
-            iter  = rep(seq_len(nrow(m)), times = p),
+            iter = rep(seq_len(nrow(m)), times = p),
             value = as.numeric(m),
-            kind  = "draws",
+            kind = "draws",
             stringsAsFactors = FALSE
         ))
     }
@@ -341,7 +412,9 @@
         ))
     }
     stop("Unsupported input to .dgtf_param_long(): ",
-         paste(class(x), collapse = "/"), call. = FALSE)
+        paste(class(x), collapse = "/"),
+        call. = FALSE
+    )
 }
 
 .plot_dgtf_param_hist <- function(long, palette = NULL, alpha = 0.5,
@@ -350,24 +423,28 @@
                                   theme = ggplot2::theme_minimal(),
                                   legend.position = "right",
                                   legend.name = "Method") {
-    is_truth     <- long$kind == "truth"
-    truth        <- long[ is_truth, , drop = FALSE]
-    methods      <- long[!is_truth, , drop = FALSE]
+    is_truth <- long$kind == "truth"
+    truth <- long[is_truth, , drop = FALSE]
+    methods <- long[!is_truth, , drop = FALSE]
     method_names <- unique(methods$name)
-    cols         <- .dgtf_palette(method_names, palette)
+    cols <- .dgtf_palette(method_names, palette)
 
     p <- ggplot2::ggplot(methods, ggplot2::aes(x = value, fill = name)) +
-        ggplot2::geom_histogram(position = "identity", alpha = alpha,
-                                bins = bins, na.rm = TRUE) +
+        ggplot2::geom_histogram(
+            position = "identity", alpha = alpha,
+            bins = bins, na.rm = TRUE
+        ) +
         ggplot2::scale_fill_manual(name = legend.name, values = cols) +
         theme +
         ggplot2::labs(x = xlab, y = ylab, title = main) +
         ggplot2::theme(legend.position = legend.position)
 
-    if (nrow(truth))
+    if (nrow(truth)) {
         p <- p + ggplot2::geom_vline(
             xintercept = truth$value,
-            color = "black", linetype = "dashed")
+            color = "black", linetype = "dashed"
+        )
+    }
     p
 }
 
@@ -378,8 +455,8 @@
                                    legend.position = "right",
                                    legend.name = "Method") {
     is_truth <- long$kind == "truth"
-    truth    <- long[ is_truth, , drop = FALSE]
-    draws    <- long[!is_truth, , drop = FALSE]
+    truth <- long[is_truth, , drop = FALSE]
+    draws <- long[!is_truth, , drop = FALSE]
     draws$index_f <- factor(draws$index)
 
     multi_index <- length(unique(draws$index)) > 1L
@@ -387,10 +464,13 @@
     if (multi_index) {
         # Per-index discrete palette; method (`name`) collapsed into group.
         p <- ggplot2::ggplot(
-                draws,
-                ggplot2::aes(x = iter, y = value,
-                             color = index_f,
-                             group = interaction(name, index_f))) +
+            draws,
+            ggplot2::aes(
+                x = iter, y = value,
+                color = index_f,
+                group = interaction(name, index_f)
+            )
+        ) +
             ggplot2::geom_line(alpha = alpha, na.rm = TRUE) +
             ggplot2::scale_color_discrete(name = "Index") +
             theme +
@@ -402,23 +482,28 @@
         # same gray as the histogram. User-passed `color =` flows in
         # via `palette = c(Estimate = color)` from the caller.
         method_names <- unique(draws$name)
-        cols         <- .dgtf_palette(method_names, palette)
+        cols <- .dgtf_palette(method_names, palette)
         p <- ggplot2::ggplot(
-                draws,
-                ggplot2::aes(x = iter, y = value,
-                             color = name, group = name)) +
+            draws,
+            ggplot2::aes(
+                x = iter, y = value,
+                color = name, group = name
+            )
+        ) +
             ggplot2::geom_line(alpha = alpha, na.rm = TRUE) +
             ggplot2::scale_color_manual(name = legend.name, values = cols) +
             theme +
             ggplot2::labs(x = xlab, y = ylab, title = main) +
             ggplot2::theme(legend.position = legend.position) +
-            ggplot2::guides(color = "none")  # no legend for a single line
+            ggplot2::guides(color = "none") # no legend for a single line
     }
 
-    if (nrow(truth))
+    if (nrow(truth)) {
         p <- p + ggplot2::geom_hline(
             yintercept = truth$value,
-            color = "black", linetype = "dashed")
+            color = "black", linetype = "dashed"
+        )
+    }
 
     p
 }
@@ -429,15 +514,17 @@
                                  theme = ggplot2::theme_minimal(),
                                  legend.position = "right",
                                  legend.name = "Method") {
-    is_truth     <- long$kind == "truth"
-    truth        <- long[ is_truth, , drop = FALSE]
-    methods      <- long[!is_truth, , drop = FALSE]
+    is_truth <- long$kind == "truth"
+    truth <- long[is_truth, , drop = FALSE]
+    methods <- long[!is_truth, , drop = FALSE]
     methods$index_f <- factor(methods$index)
     method_names <- unique(methods$name)
-    cols         <- .dgtf_palette(method_names, palette)
+    cols <- .dgtf_palette(method_names, palette)
 
-    p <- ggplot2::ggplot(methods, ggplot2::aes(x = index_f, y = value,
-                                               fill = name)) +
+    p <- ggplot2::ggplot(methods, ggplot2::aes(
+        x = index_f, y = value,
+        fill = name
+    )) +
         ggplot2::geom_boxplot(alpha = alpha, outlier.size = 0.6) +
         ggplot2::scale_fill_manual(name = legend.name, values = cols) +
         theme +
@@ -446,7 +533,8 @@
 
     if (nrow(truth)) {
         truth$index_f <- factor(truth$index,
-                                levels = levels(methods$index_f))
+            levels = levels(methods$index_f)
+        )
         # Drop method/group from inheritance so the truth marker is
         # rendered once per index regardless of how many methods are
         # plotted. Use shape = 23 (filled diamond) to read clearly on
@@ -456,7 +544,8 @@
             ggplot2::aes(x = index_f, y = value),
             inherit.aes = FALSE,
             color = "black", fill = "black",
-            shape = 23, size = 3)
+            shape = 23, size = 3
+        )
     }
     p
 }
@@ -467,37 +556,53 @@
                                     bins = 50, ...) {
     type <- match.arg(type, c("hist", "trace"))
     sd <- .dgtf_static_draws(x)
-    if (!param %in% sd$inferred)
+    if (!param %in% sd$inferred) {
         stop(sprintf(
             "Parameter '%s' is not inferred for this fit. Inferred: %s",
-            param, paste(sd$inferred, collapse = ", ")), call. = FALSE)
+            param, paste(sd$inferred, collapse = ", ")
+        ), call. = FALSE)
+    }
 
-    if (type == "trace" && !identical(x$method, "mcmc"))
+    if (type == "trace" && !identical(x$method, "mcmc")) {
         stop("Trace plots require an MCMC fit; this fit is '",
-             x$method, "'. HVA produces i.i.d. importance samples, ",
-             "not chains.", call. = FALSE)
+            x$method, "'. HVA produces i.i.d. importance samples, ",
+            "not chains.",
+            call. = FALSE
+        )
+    }
 
     p_dim <- ncol(sd$draws[[param]])
-    long  <- .dgtf_param_long(x, param, name = "Estimate")
-    if (!is.null(truth))
-        long <- rbind(long,
-                      .dgtf_param_long(truth, param,
-                                       name = "Truth",
-                                       p_dim_hint = p_dim))
+    long <- .dgtf_param_long(x, param, name = "Estimate")
+    if (!is.null(truth)) {
+        long <- rbind(
+            long,
+            .dgtf_param_long(truth, param,
+                name = "Truth",
+                p_dim_hint = p_dim
+            )
+        )
+    }
 
-    if (type == "trace")
-        return(.plot_dgtf_param_trace(long, alpha = alpha,
-                                      ylab = param, ...))
+    if (type == "trace") {
+        return(.plot_dgtf_param_trace(long,
+            alpha = alpha,
+            ylab = param, ...
+        ))
+    }
 
     palette <- if (!is.null(color)) c(Estimate = color) else NULL
-    legend  <- if (is.null(truth)) "none" else "right"
+    legend <- if (is.null(truth)) "none" else "right"
     if (p_dim == 1L) {
-        .plot_dgtf_param_hist(long, palette = palette, alpha = alpha,
-                              bins = bins, xlab = param,
-                              legend.position = legend, ...)
+        .plot_dgtf_param_hist(long,
+            palette = palette, alpha = alpha,
+            bins = bins, xlab = param,
+            legend.position = legend, ...
+        )
     } else {
-        .plot_dgtf_param_box(long, palette = palette, alpha = alpha,
-                             ylab = param, legend.position = legend, ...)
+        .plot_dgtf_param_box(long,
+            palette = palette, alpha = alpha,
+            ylab = param, legend.position = legend, ...
+        )
     }
 }
 
@@ -505,8 +610,10 @@
                                      palette = NULL, alpha = 0.5,
                                      bins = 50,
                                      legend.position = "top", ...) {
-    stopifnot(is.list(fits), length(fits) >= 1L,
-              !is.null(names(fits)), all(nzchar(names(fits))))
+    stopifnot(
+        is.list(fits), length(fits) >= 1L,
+        !is.null(names(fits)), all(nzchar(names(fits)))
+    )
 
     # Resolve p_dim from the first dgtf_fit found; needed to broadcast /
     # validate any numeric-truth entries in the list.
@@ -519,27 +626,40 @@
                 break
             }
         } else if (is.matrix(e)) {
-            p_dim_hint <- ncol(e); break
+            p_dim_hint <- ncol(e)
+            break
         }
     }
-    if (is.null(p_dim_hint))
+    if (is.null(p_dim_hint)) {
         stop(sprintf(
             "No fit in the input has '%s' inferred (and no draws matrix ",
-            "supplied to seed p_dim).", param), call. = FALSE)
+            "supplied to seed p_dim).", param
+        ), call. = FALSE)
+    }
 
     long <- do.call(rbind, Map(
-        function(x, nm) .dgtf_param_long(x, param, name = nm,
-                                         p_dim_hint = p_dim_hint),
-        fits, names(fits)))
+        function(x, nm) {
+            .dgtf_param_long(x, param,
+                name = nm,
+                p_dim_hint = p_dim_hint
+            )
+        },
+        fits, names(fits)
+    ))
 
-    if (p_dim_hint == 1L)
-        .plot_dgtf_param_hist(long, palette = palette, alpha = alpha,
-                              bins = bins, xlab = param,
-                              legend.position = legend.position, ...)
-    else
-        .plot_dgtf_param_box(long, palette = palette, alpha = alpha,
-                             ylab = param,
-                             legend.position = legend.position, ...)
+    if (p_dim_hint == 1L) {
+        .plot_dgtf_param_hist(long,
+            palette = palette, alpha = alpha,
+            bins = bins, xlab = param,
+            legend.position = legend.position, ...
+        )
+    } else {
+        .plot_dgtf_param_box(long,
+            palette = palette, alpha = alpha,
+            ylab = param,
+            legend.position = legend.position, ...
+        )
+    }
 }
 
 # Build a marglik convergence plot for a single dgtf_fit.
@@ -561,25 +681,30 @@
 # iterations don't render the convergence line invisible. Outliers
 # remain plotted in the raw layer; they just exit the plot frame.
 .plot_dgtf_marglik <- function(x,
-                               window     = NULL,
-                               show_band  = TRUE,
-                               alpha_raw  = 0.25,
-                               y_focus    = TRUE,
-                               y_focus_k  = 6,
-                               xlab       = "Iteration",
-                               ylab       = NULL,
-                               main       = NULL,
-                               theme      = ggplot2::theme_minimal()) {
+                               window = NULL,
+                               show_band = TRUE,
+                               alpha_raw = 0.25,
+                               y_focus = TRUE,
+                               y_focus_k = 6,
+                               xlab = "Iteration",
+                               ylab = NULL,
+                               main = NULL,
+                               theme = ggplot2::theme_minimal()) {
     ml <- x$fit$marglik
-    if (is.null(ml))
+    if (is.null(ml)) {
         stop("No `marglik` trace found in this fit. Convergence plots ",
-             "are only available for HVA fits.", call. = FALSE)
+            "are only available for HVA fits.",
+            call. = FALSE
+        )
+    }
     ml <- as.numeric(ml)
     ml[!is.finite(ml)] <- NA_real_
-    n  <- length(ml)
-    if (n < 5L)
+    n <- length(ml)
+    if (n < 5L) {
         stop("`marglik` trace has fewer than 5 points; nothing to plot.",
-             call. = FALSE)
+            call. = FALSE
+        )
+    }
 
     # runmed() requires odd window length.
     k <- if (is.null(window)) max(50L, n %/% 20L) else as.integer(window)
@@ -589,8 +714,9 @@
     # runmed() requires finite input; impute the global median for the
     # smoother pass only, leaving raw NAs in the displayed line.
     ml_imp <- ml
-    if (anyNA(ml_imp))
+    if (anyNA(ml_imp)) {
         ml_imp[is.na(ml_imp)] <- stats::median(ml, na.rm = TRUE)
+    }
 
     # Rolling median: robust central-tendency line.
     smth <- as.numeric(stats::runmed(ml_imp, k = k, endrule = "median"))
@@ -603,9 +729,13 @@
     # noise. Computed once and reused if y_focus needs the same scale.
     sdv <- if (isTRUE(show_band) || isTRUE(y_focus)) {
         abs_dev <- abs(ml_imp - smth)
-        1.4826 * as.numeric(stats::runmed(abs_dev, k = k,
-                                          endrule = "median"))
-    } else NULL
+        1.4826 * as.numeric(stats::runmed(abs_dev,
+            k = k,
+            endrule = "median"
+        ))
+    } else {
+        NULL
+    }
 
     cv <- .dgtf_marglik_convergence(ml)
 
@@ -619,30 +749,35 @@
 
     plt <- ggplot2::ggplot(df, ggplot2::aes(x = iter)) +
         ggplot2::geom_line(ggplot2::aes(y = marglik),
-                           alpha = alpha_raw, na.rm = TRUE)
+            alpha = alpha_raw, na.rm = TRUE
+        )
 
     if (isTRUE(show_band)) {
         plt <- plt + ggplot2::geom_ribbon(
             ggplot2::aes(ymin = lower, ymax = upper),
-            alpha = 0.15, na.rm = TRUE)
+            alpha = 0.15, na.rm = TRUE
+        )
     }
 
     plt <- plt + ggplot2::geom_line(
         ggplot2::aes(y = smoothed),
-        linewidth = 0.8, na.rm = TRUE)
+        linewidth = 0.8, na.rm = TRUE
+    )
 
     if (!is.null(cv) && !is.na(cv$stabilized_iter)) {
         plt <- plt + ggplot2::geom_vline(
             xintercept = cv$stabilized_iter,
-            linetype = "dashed", alpha = 0.6)
+            linetype = "dashed", alpha = 0.6
+        )
     }
     if (!is.null(cv) && !is.na(cv$last_spike_iter) &&
         # Avoid drawing a second line right on top of the first one.
         (is.na(cv$stabilized_iter) ||
-         abs(cv$last_spike_iter - cv$stabilized_iter) > max(5L, cv$roll_win %/% 5L))) {
+            abs(cv$last_spike_iter - cv$stabilized_iter) > max(5L, cv$roll_win %/% 5L))) {
         plt <- plt + ggplot2::geom_vline(
             xintercept = cv$last_spike_iter,
-            linetype = "dotted", alpha = 0.5)
+            linetype = "dotted", alpha = 0.5
+        )
     }
 
     # Y-axis clipping. Use coord_cartesian so points outside the limits
@@ -650,34 +785,38 @@
     if (isTRUE(y_focus) && !is.null(sdv)) {
         y_lo <- min(smth - y_focus_k * sdv, na.rm = TRUE)
         y_hi <- max(smth + y_focus_k * sdv, na.rm = TRUE)
-        if (is.finite(y_lo) && is.finite(y_hi) && y_lo < y_hi)
+        if (is.finite(y_lo) && is.finite(y_hi) && y_lo < y_hi) {
             plt <- plt + ggplot2::coord_cartesian(ylim = c(y_lo, y_hi))
+        }
     }
 
     plt +
         ggplot2::labs(
-            x     = xlab,
-            y     = ylab %||%
-                    expression("log " * hat(p)(y * " | " * gamma) *
-                               " (per-iter SMC estimate)"),
+            x = xlab,
+            y = ylab %||%
+                expression("log " * hat(p)(y * " | " * gamma) *
+                    " (per-iter SMC estimate)"),
             title = main %||% sprintf(
-                "HVA marglik trace (rolling median, window = %d)", k)) +
+                "HVA marglik trace (rolling median, window = %d)", k
+            )
+        ) +
         theme
 }
 
 #' @export
 plot.dgtf_fit <- function(x,
-                          what  = "Rt",
+                          what = "Rt",
                           type = c("hist", "trace"),
                           level = 0.95,
                           truth = NULL,
-                          time  = NULL,
+                          time = NULL,
                           color = NULL,
                           alpha = 0.5,
-                          xlab  = "Time",
-                          ylab  = NULL,
-                          main  = NULL,
+                          xlab = "Time",
+                          ylab = NULL,
+                          main = NULL,
                           theme = ggplot2::theme_minimal(),
+                          hline = NULL,
                           ...) {
     type <- match.arg(type)
     kind <- .what_kind(what)
@@ -702,41 +841,53 @@ plot.dgtf_fit <- function(x,
         )
     }
 
-    band <- .dgtf_band(x, what = what, level = level, time = time,
-                       name = "Estimate")
-    if (!is.null(truth))
-        band <- rbind(band,
-                      .dgtf_band(truth, what = what,
-                                 time = band$time, name = "Truth"))
+    if (is.null(hline) && identical(what, "Rt")) hline <- 1
+    band <- .dgtf_band(x,
+        what = what, level = level, time = time,
+        name = "Estimate"
+    )
+    if (!is.null(truth)) {
+        band <- rbind(
+            band,
+            .dgtf_band(truth,
+                what = what,
+                time = band$time, name = "Truth"
+            )
+        )
+    }
     .plot_dgtf_band(
         band,
         palette = if (!is.null(color)) c(Estimate = color) else NULL,
-        alpha   = alpha,
-        xlab    = xlab,
-        ylab    = ylab %||% .default_ylab(what),
-        main    = main,
-        theme   = theme,
+        alpha = alpha,
+        xlab = xlab,
+        ylab = ylab %||% .default_ylab(what),
+        main = main,
+        theme = theme,
+        hline = hline,
         legend.position = if (is.null(truth)) "none" else "right"
     )
 }
 
 #' @export
 dgtf_compare_plot <- function(fits,
-                              what            = "Rt",
-                              level           = 0.95,
-                              time            = NULL,
-                              palette         = NULL,
-                              alpha           = 0.5,
+                              what = "Rt",
+                              level = 0.95,
+                              time = NULL,
+                              palette = NULL,
+                              alpha = 0.5,
                               legend.position = "right",
-                              legend.name     = "Method",
-                              legend.nrow     = NULL,
-                              xlab            = "Time",
-                              ylab            = NULL,
-                              main            = NULL,
-                              theme           = ggplot2::theme_minimal(),
+                              legend.name = "Method",
+                              legend.nrow = NULL,
+                              xlab = "Time",
+                              ylab = NULL,
+                              main = NULL,
+                              theme = ggplot2::theme_minimal(),
+                              hline = NULL,
                               ...) {
-    stopifnot(is.list(fits), length(fits) >= 1L,
-              !is.null(names(fits)), all(nzchar(names(fits))))
+    stopifnot(
+        is.list(fits), length(fits) >= 1L,
+        !is.null(names(fits)), all(nzchar(names(fits)))
+    )
     kind <- .what_kind(what)
     if (kind == "param") {
         return(.plot_dgtf_param_compare(fits, what,
@@ -747,36 +898,51 @@ dgtf_compare_plot <- function(fits,
         ))
     }
 
+    if (is.null(hline) && identical(what, "Rt")) hline <- 1
     bands <- Map(
-        function(x, nm) .dgtf_band(x, what = what, level = level,
-                                   time = time, name = nm),
+        function(x, nm) {
+            .dgtf_band(x,
+                what = what, level = level,
+                time = time, name = nm
+            )
+        },
         fits, names(fits)
     )
     bands <- do.call(rbind, bands)
     .plot_dgtf_band(bands,
-                    palette         = palette,
-                    alpha           = alpha,
-                    xlab            = xlab,
-                    ylab            = ylab %||% .default_ylab(what),
-                    main            = main,
-                    theme           = theme,
-                    legend.position = legend.position,
-                    legend.name     = legend.name,
-                    legend.nrow     = legend.nrow)
+        palette         = palette,
+        alpha           = alpha,
+        xlab            = xlab,
+        ylab            = ylab %||% .default_ylab(what),
+        main            = main,
+        theme           = theme,
+        legend.position = legend.position,
+        legend.name     = legend.name,
+        legend.nrow     = legend.nrow,
+        hline           = hline
+    )
 }
 
 #' @export
 plot.dgtf_ppc <- function(x, what = c("Rt", "yhat"),
-                          truth = NULL, ...) {
+                          truth = NULL, hline = NULL, ...) {
     what <- match.arg(what)
     band <- .dgtf_band(x, what = what, name = "Estimate")
-    if (!is.null(truth))
-        band <- rbind(band,
-                      .dgtf_band(truth, what = what,
-                                 time = band$time, name = "Truth"))
+    if (!is.null(truth)) {
+        band <- rbind(
+            band,
+            .dgtf_band(truth,
+                what = what,
+                time = band$time, name = "Truth"
+            )
+        )
+    }
+    if (is.null(hline) && identical(what, "Rt")) hline <- 1
     .plot_dgtf_band(band, ...,
-                    legend.position = if (is.null(truth)) "none" else "right",
-                    ylab = .default_ylab(what))
+        legend.position = if (is.null(truth)) "none" else "right",
+        ylab = .default_ylab(what),
+        hline = hline
+    )
 }
 
 #' Plot a posterior-predictive forecast
@@ -814,19 +980,20 @@ plot.dgtf_ppc <- function(x, what = c("Rt", "yhat"),
 #' @export
 plot.dgtf_forecast <- function(x,
                                truth = NULL,
-                               time  = NULL,
+                               time = NULL,
                                color = NULL,
                                alpha = 0.5,
-                               xlab  = NULL,
-                               ylab  = NULL,
-                               main  = NULL,
+                               xlab = NULL,
+                               ylab = NULL,
+                               main = NULL,
                                theme = ggplot2::theme_minimal(),
                                ...) {
     q <- x$quantiles
-    if (is.null(q) || nrow(q) == 0L)
+    if (is.null(q) || nrow(q) == 0L) {
         stop("Forecast object has no quantiles to plot.", call. = FALSE)
+    }
 
-    h         <- nrow(q)
+    h <- nrow(q)
     only_last <- isTRUE(x$only_last)
 
     # x-axis values. only_last collapses to a single time step at
@@ -836,10 +1003,12 @@ plot.dgtf_forecast <- function(x,
     } else if (is.null(time)) {
         seq_len(h)
     } else {
-        if (length(time) != h)
+        if (length(time) != h) {
             stop(sprintf(
                 "`time` must have length %d (one entry per forecast step).",
-                h), call. = FALSE)
+                h
+            ), call. = FALSE)
+        }
         as.numeric(time)
     }
     xlab <- xlab %||% "Forecast step"
@@ -857,7 +1026,8 @@ plot.dgtf_forecast <- function(x,
         } else {
             stop(sprintf(
                 "`truth` has length %d but horizon is %d.",
-                length(truth_vec), h), call. = FALSE)
+                length(truth_vec), h
+            ), call. = FALSE)
         }
     }
 
@@ -866,26 +1036,30 @@ plot.dgtf_forecast <- function(x,
     # to draw a meaningful line / ribbon.
     if (only_last || h == 1L) {
         df <- data.frame(
-            time   = as.numeric(x_time),
-            lower  = as.numeric(q[, "lower"]),
+            time = as.numeric(x_time),
+            lower = as.numeric(q[, "lower"]),
             median = as.numeric(q[, "median"]),
-            upper  = as.numeric(q[, "upper"]),
+            upper = as.numeric(q[, "upper"]),
             stringsAsFactors = FALSE
         )
         fc_color <- color %||% "black"
         p <- ggplot2::ggplot(df, ggplot2::aes(x = time)) +
             ggplot2::geom_pointrange(
                 ggplot2::aes(y = median, ymin = lower, ymax = upper),
-                color = fc_color, size = 0.6) +
+                color = fc_color, size = 0.6
+            ) +
             theme +
             ggplot2::labs(x = xlab, y = ylab, title = main)
         if (!is.null(truth_vec)) {
             p <- p + ggplot2::geom_point(
-                data = data.frame(time = as.numeric(x_time),
-                                  truth = truth_vec),
+                data = data.frame(
+                    time = as.numeric(x_time),
+                    truth = truth_vec
+                ),
                 ggplot2::aes(y = truth),
                 shape = 4L, size = 3, stroke = 1.1,
-                color = "black")
+                color = "black"
+            )
         }
         return(p)
     }
@@ -895,21 +1069,21 @@ plot.dgtf_forecast <- function(x,
     # rows whose `name` matches `.truth_pattern` ("^(true|truth)$")
     # are auto-styled as a dashed black line by `.plot_dgtf_band()`.
     band <- data.frame(
-        time       = as.numeric(x_time),
-        lower      = as.numeric(q[, "lower"]),
-        central    = as.numeric(q[, "median"]),
-        upper      = as.numeric(q[, "upper"]),
-        name       = "Forecast",
+        time = as.numeric(x_time),
+        lower = as.numeric(q[, "lower"]),
+        central = as.numeric(q[, "median"]),
+        upper = as.numeric(q[, "upper"]),
+        name = "Forecast",
         has_ribbon = TRUE,
         stringsAsFactors = FALSE
     )
     if (!is.null(truth_vec)) {
         band <- rbind(band, data.frame(
-            time       = as.numeric(x_time),
-            lower      = NA_real_,
-            central    = truth_vec,
-            upper      = NA_real_,
-            name       = "Truth",
+            time = as.numeric(x_time),
+            lower = NA_real_,
+            central = truth_vec,
+            upper = NA_real_,
+            name = "Truth",
             has_ribbon = FALSE,
             stringsAsFactors = FALSE
         ))
@@ -980,8 +1154,10 @@ plot.dgtf_forecast <- function(x,
 #' @examples
 #' \dontrun{
 #' fit <- dgtf(sim$y[1:180], mod, prior, method = "hva")
-#' fc  <- dgtf_forecast_fit(fit, h = 20, nrep = 200,
-#'                          ypred_true = sim$y[181:200])
+#' fc <- dgtf_forecast_fit(fit,
+#'     h = 20, nrep = 200,
+#'     ypred_true = sim$y[181:200]
+#' )
 #'
 #' # In-sample band + forecast band + dashed truth across the gap.
 #' plot_dgtf_y(fit, fc)
@@ -992,34 +1168,37 @@ plot.dgtf_forecast <- function(x,
 #'
 #' # Real dates on the x-axis.
 #' plot_dgtf_y(fit, fc,
-#'             time_in  = as.numeric(date_seq[1:180]),
-#'             time_out = as.numeric(date_seq[181:200]),
-#'             xlab     = "Date")
+#'     time_in  = as.numeric(date_seq[1:180]),
+#'     time_out = as.numeric(date_seq[181:200]),
+#'     xlab     = "Date"
+#' )
 #' }
 #'
 #' @export
 plot_dgtf_y <- function(x,
-                        forecast   = NULL,
-                        truth_in   = NULL,
-                        truth_out  = NULL,
+                        forecast = NULL,
+                        truth_in = NULL,
+                        truth_out = NULL,
                         show_truth = TRUE,
-                        time_in    = NULL,
-                        time_out   = NULL,
-                        level      = 0.95,
-                        nrep       = 100L,
-                        in_color   = "#0072B2",
-                        out_color  = "#D55E00",
-                        in_name    = "In-sample",
-                        out_name   = "Forecast",
-                        alpha      = 0.4,
-                        xlab       = "Time",
-                        ylab       = expression(y[t]),
-                        main       = NULL,
-                        theme      = ggplot2::theme_minimal(),
+                        time_in = NULL,
+                        time_out = NULL,
+                        level = 0.95,
+                        nrep = 100L,
+                        in_color = "#0072B2",
+                        out_color = "#D55E00",
+                        in_name = "In-sample",
+                        out_name = "Forecast",
+                        alpha = 0.4,
+                        xlab = "Time",
+                        ylab = expression(y[t]),
+                        main = NULL,
+                        theme = ggplot2::theme_minimal(),
                         ...) {
-    if (!is.null(forecast) && !inherits(forecast, "dgtf_forecast"))
+    if (!is.null(forecast) && !inherits(forecast, "dgtf_forecast")) {
         stop("`forecast` must be a `dgtf_forecast` or NULL.",
-             call. = FALSE)
+            call. = FALSE
+        )
+    }
 
     # 1. Resolve `x` to (ppc, optional fit). The fit, if available,
     #    is consulted only to auto-fill `truth_in` from `fit$y` --
@@ -1037,7 +1216,9 @@ plot_dgtf_y <- function(x,
         ppc <- x
     } else {
         stop("`x` must be a `dgtf_fit` or a `dgtf_ppc` (got class: ",
-             paste(class(x), collapse = "/"), ").", call. = FALSE)
+            paste(class(x), collapse = "/"), ").",
+            call. = FALSE
+        )
     }
 
     qm_in <- ppc$yhat
@@ -1049,19 +1230,24 @@ plot_dgtf_y <- function(x,
     }
 
     n_in <- nrow(qm_in)
-    t_in <- if (is.null(time_in)) as.numeric(seq_len(n_in) - 1L)
-            else as.numeric(time_in)
-    if (length(t_in) != n_in)
+    t_in <- if (is.null(time_in)) {
+        as.numeric(seq_len(n_in) - 1L)
+    } else {
+        as.numeric(time_in)
+    }
+    if (length(t_in) != n_in) {
         stop(sprintf(
             "`time_in` must have length %d (the in-sample series length).",
-            n_in), call. = FALSE)
+            n_in
+        ), call. = FALSE)
+    }
 
     band_in <- data.frame(
-        time       = t_in,
-        lower      = as.numeric(qm_in[, 1L]),
-        central    = as.numeric(qm_in[, 2L]),
-        upper      = as.numeric(qm_in[, 3L]),
-        name       = in_name,
+        time = t_in,
+        lower = as.numeric(qm_in[, 1L]),
+        central = as.numeric(qm_in[, 2L]),
+        upper = as.numeric(qm_in[, 3L]),
+        name = in_name,
         has_ribbon = TRUE,
         stringsAsFactors = FALSE
     )
@@ -1070,31 +1256,34 @@ plot_dgtf_y <- function(x,
     #    of the in-sample window, using the in-sample step size as
     #    the default increment so dates / integer indices both work.
     band_out <- NULL
-    t_out    <- numeric(0)
-    h_out    <- 0L
+    t_out <- numeric(0)
+    h_out <- 0L
     if (!is.null(forecast)) {
         qm_out <- forecast$quantiles
-        if (is.null(qm_out) || nrow(qm_out) == 0L)
+        if (is.null(qm_out) || nrow(qm_out) == 0L) {
             stop("Forecast object has no quantiles.", call. = FALSE)
+        }
         h_out <- nrow(qm_out)
 
         if (is.null(time_out)) {
-            step  <- if (n_in >= 2L) t_in[n_in] - t_in[n_in - 1L] else 1
+            step <- if (n_in >= 2L) t_in[n_in] - t_in[n_in - 1L] else 1
             t_out <- t_in[n_in] + step * seq_len(h_out)
         } else {
             t_out <- as.numeric(time_out)
-            if (length(t_out) != h_out)
+            if (length(t_out) != h_out) {
                 stop(sprintf(
                     "`time_out` must have length %d (the forecast horizon).",
-                    h_out), call. = FALSE)
+                    h_out
+                ), call. = FALSE)
+            }
         }
 
         band_out <- data.frame(
-            time       = t_out,
-            lower      = as.numeric(qm_out[, "lower"]),
-            central    = as.numeric(qm_out[, "median"]),
-            upper      = as.numeric(qm_out[, "upper"]),
-            name       = out_name,
+            time = t_out,
+            lower = as.numeric(qm_out[, "lower"]),
+            central = as.numeric(qm_out[, "median"]),
+            upper = as.numeric(qm_out[, "upper"]),
+            name = out_name,
             has_ribbon = TRUE,
             stringsAsFactors = FALSE
         )
@@ -1105,59 +1294,72 @@ plot_dgtf_y <- function(x,
     #    black line connecting them (visually showing the full
     #    observed-then-future trajectory across the cut).
     if (isTRUE(show_truth)) {
-         if (is.null(truth_in) && !is.null(fit))
+        if (is.null(truth_in) && !is.null(fit)) {
             truth_in <- as.numeric(fit$y)
-        if (is.null(truth_out) && !is.null(forecast))
+        }
+        if (is.null(truth_out) && !is.null(forecast)) {
             truth_out <- forecast$ypred_true
+        }
     } else {
-        truth_in  <- NULL
+        truth_in <- NULL
         truth_out <- NULL
     }
 
     truth_band <- NULL
     if (!is.null(truth_in)) {
         truth_in <- as.numeric(truth_in)
-        if (length(truth_in) != n_in)
+        if (length(truth_in) != n_in) {
             stop(sprintf(
                 "`truth_in` length %d does not match in-sample length %d.",
-                length(truth_in), n_in), call. = FALSE)
+                length(truth_in), n_in
+            ), call. = FALSE)
+        }
         truth_band <- data.frame(
-            time       = t_in,
-            lower      = NA_real_,
-            central    = truth_in,
-            upper      = NA_real_,
-            name       = "Truth",
+            time = t_in,
+            lower = NA_real_,
+            central = truth_in,
+            upper = NA_real_,
+            name = "Truth",
             has_ribbon = FALSE,
-            stringsAsFactors = FALSE)
+            stringsAsFactors = FALSE
+        )
     }
     if (!is.null(truth_out) && length(truth_out) > 0L) {
         truth_out <- as.numeric(truth_out)
-        if (length(truth_out) < h_out)
+        if (length(truth_out) < h_out) {
             stop(sprintf(
                 "`truth_out` length %d is shorter than horizon %d.",
-                length(truth_out), h_out), call. = FALSE)
+                length(truth_out), h_out
+            ), call. = FALSE)
+        }
         truth_out <- truth_out[seq_len(h_out)]
         truth_out_df <- data.frame(
-            time       = t_out,
-            lower      = NA_real_,
-            central    = truth_out,
-            upper      = NA_real_,
-            name       = "Truth",
+            time = t_out,
+            lower = NA_real_,
+            central = truth_out,
+            upper = NA_real_,
+            name = "Truth",
             has_ribbon = FALSE,
-            stringsAsFactors = FALSE)
-        truth_band <- if (is.null(truth_band)) truth_out_df
-                      else rbind(truth_band, truth_out_df)
+            stringsAsFactors = FALSE
+        )
+        truth_band <- if (is.null(truth_band)) {
+            truth_out_df
+        } else {
+            rbind(truth_band, truth_out_df)
+        }
     }
 
     # 4. Stack all band rows, then dispatch to the shared band
     #    plotter so the visual idiom matches the rest of the
     #    package's time-series plots.
     bands <- band_in
-    if (!is.null(band_out))   bands <- rbind(bands, band_out)
+    if (!is.null(band_out)) bands <- rbind(bands, band_out)
     if (!is.null(truth_band)) bands <- rbind(bands, truth_band)
 
-    palette <- stats::setNames(c(in_color, out_color),
-                               c(in_name,  out_name))
+    palette <- stats::setNames(
+        c(in_color, out_color),
+        c(in_name, out_name)
+    )
 
     .plot_dgtf_band(
         bands,

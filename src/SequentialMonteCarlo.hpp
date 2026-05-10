@@ -461,7 +461,10 @@ namespace SMC
             if (sys_list[model.fsys] == SysEq::Evolution::identity)
                 Theta.slice(0) = arma::randu<arma::mat>(model.nP, N);
             else
+            {
                 Theta.slice(0) = arma::randn<arma::mat>(model.nP, N);
+                Theta.slice(0).row(0).zeros();   // pin psi_0 = 0 for all particles
+            }
 
             // No zero-inflation by default
             arma::mat z = arma::ones<arma::mat>(N, y.n_elem);

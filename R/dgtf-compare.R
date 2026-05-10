@@ -274,7 +274,7 @@ print.dgtf_comparison <- function(x, digits = 3L, ...) {
         cat("\nNote: `log_marglik` is the HVA SMC tail estimate of\n",
             "log p(y | gamma_final); MCMC fits have no equivalent stored\n",
             "and show NA. Pointwise log-likelihood is not currently\n",
-            "exposed by either engine.\n", sep = "")
+            "exposed by either inference method.\n", sep = "")
 
     if (identical(cls, "dgtf_fit") && isTRUE(attr(x, "has_truth")))
         cat("\nUse `dgtf_compare_params(fits, truth)` for the\n",

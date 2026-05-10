@@ -295,7 +295,6 @@ logLik.dgtf_fit <- function(object, ...) {
 summary.dgtf_fit <- function(object, truth = NULL, ...) {
     f       <- object$fit
     method  <- object$method
-    engine  <- object$control$method
     nsample <- object$control$nsample %||% object$control$n_sample
 
     # Static-parameter draws (handles HVA / MCMC orientation differences).
@@ -418,7 +417,6 @@ summary.dgtf_fit <- function(object, truth = NULL, ...) {
 
     out <- list(
         method           = method,
-        engine           = engine,
         n                = length(object$y),
         nsample          = nsample,
         elapsed          = object$elapsed,
@@ -440,9 +438,8 @@ summary.dgtf_fit <- function(object, truth = NULL, ...) {
 #' @export
 #' @export
 print.summary.dgtf_fit <- function(x, digits = 3L, ...) {
-    cat(sprintf("DGTF model fit (method = %s, engine = %s)\n",
-                toupper(x$method  %||% "?"),
-                toupper(x$engine  %||% "?")))
+    cat(sprintf("DGTF model fit (method = %s)\n",
+                toupper(x$method  %||% "?")))
     cat(strrep("-", 50), "\n", sep = "")
 
     mc <- x$model_components

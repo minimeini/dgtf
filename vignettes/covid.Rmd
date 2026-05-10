@@ -58,7 +58,6 @@ fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-attr(fit, "ppc") <- posterior_predict(fit)
 
 plot(fit, what = "Rt")
 plot(fit, what = "seas")
@@ -74,49 +73,38 @@ System      : shift  (gain = softplus, lag = lognorm [window = 30])
 Seasonality : period 7 (in_state = FALSE)
 Data        : n = 250 observations
 Posterior   : 5,000 draws
-Elapsed     : 468.33 s
-  optim     : 370.46 s
-  sampling  : 97.84 s
+Elapsed     : 274.28 s
+  optim     : 178.04 s
+  sampling  : 96.20 s
 
 Static parameters
- parameter    mean  median       sd    q025   q975
-         W 0.00854 0.00848 0.000922 0.00687 0.0105
-   seas[1]     8.5    8.29     1.92     5.4   12.8
-   seas[2]     8.6    8.46     1.55    5.95     12
-   seas[3]     4.4    4.13     1.68    1.92   8.34
-   seas[4]   0.932   0.762     0.69   0.123    2.7
-   seas[5]    0.84   0.679    0.646   0.112   2.44
-   seas[6]    12.7    12.5     2.35    8.68   17.9
-   seas[7]    6.12    5.89     1.71    3.44   10.2
-       rho    18.8    18.7     2.47    14.6   24.3
-      par1   0.621   0.632    0.273  0.0537   1.12
-      par2    3.85    3.38     1.97    1.59   8.92
+ parameter    mean median       sd    q025   q975
+         W 0.00863 0.0086 0.000753 0.00719 0.0102
+   seas[1]    8.98   8.85     1.62     6.2   12.6
+   seas[2]    8.97   8.88     1.37    6.57     12
+   seas[3]    5.28   5.07     1.58    2.81   8.96
+   seas[4]    1.29   1.07    0.936    0.18   3.69
+   seas[5]    1.15  0.972    0.827   0.141   3.24
+   seas[6]    14.2     14     1.95    10.7   18.3
+   seas[7]    7.27   7.06     1.81    4.35   11.3
+       rho    18.5   18.2     2.66    13.8   24.2
+      par1   0.362  0.373    0.254  -0.169  0.837
+      par2    3.16   2.77     1.68    1.25   7.53
 
 Latent state psi (median band)
-  median range : [-0.511, 0.856]   IQR median : 0.685
+  median range : [-0.478, 0.737]   IQR median : 0.66
 
 Convergence (HVA marglik trace)
-  iterations             : 2000
-  late window (last 100) : median 8.69, MAD 2.22
-  early window           : median 23.9, MAD 20.6
-  MAD ratio (late/early) : 0.108  [substantial stabilization]
-  tail drift (in MADs)   : 0.08  [flat]
-  stabilized             : iter ~ 297  (rolling-MAD < 2x final MAD)
-  last large spike       : iter ~ 1860  (|deviation| > 5x final MAD)
-
-Posterior predictive check
-<dgtf posterior predictive summary, level = 95%>
-
-Scalar metrics:
- target         metric value nominal_level
-      y     chi-square  1.71              
-      y           CRPS   9.7              
-      y       coverage  0.94          0.95
-      y          width  61.5              
-      y interval_score  90.3              
-     Rt          width 0.372      
+  iterations             : 1000
+  late window (last 50 ) : median 8.06, MAD 2.26
+  early window           : median 40.1, MAD 39.7
+  MAD ratio (late/early) : 0.0569  [substantial stabilization]
+  tail drift (in MADs)   : 0.26  [flat]
+  stabilized             : iter ~ 308  (rolling-MAD < 2x final MAD)
+  last large spike       : iter ~ 823  (|deviation| > 5x final MAD)
 
 ```{r}
+attr(fit, "ppc") <- posterior_predict(fit)
 plot(fit, what = "yhat")
 summary(attr(fit, "ppc"))
 ```
@@ -133,6 +121,7 @@ Scalar metrics:
      Rt          width 0.372              
 
 ```{r}
+set.seed(123)
 fc <- dgtf_forecast_fit(fit, h = 14, ypred_true = ytest)
 plot_dgtf_y(fit, fc)
 summary(fc)
@@ -144,8 +133,8 @@ Forecast draws : 500,000
 Scoring (vs ypred_true):
      metric value nominal_level
    coverage 0.929          0.95
- chi-square 0.399              
-       CRPS   3.1  
+ chi-square 0.312              
+       CRPS  3.07              
 
 ```{r}
 fc
@@ -156,20 +145,20 @@ Forecast draws : 500,000
 
 Forecast:
  step lower median upper truth hit
-    1     8     18    33    22   *
-    2     5     13    26    20   *
-    3     6     15    28    22   *
-    4     6     15    28    15   *
-    5     3     11    22    12   *
-    6     1      6    15    12   *
-    7     1      5    13     7   *
-    8     7     16    31    16   *
-    9     4     11    24     6   *
-   10     5     13    27     6   *
-   11     5     14    27     8   *
-   12     3     10    21    10   *
-   13     1      6    15     7   *
-   14     1      5    13    16    
+    1     9     20    36    22   *
+    2     6     15    28    20   *
+    3     6     16    30    22   *
+    4     6     16    31    15   *
+    5     4     12    25    12   *
+    6     2      8    18    12   *
+    7     1      6    15     7   *
+    8     8     18    34    16   *
+    9     5     14    27     6   *
+   10     6     15    29     6   *
+   11     6     15    30     8   *
+   12     4     12    25    10   *
+   13     2      7    17     7   *
+   14     1      6    15    16    
 
 # 3. MCMC inference
 
@@ -182,7 +171,6 @@ fit_mcmc <- dgtf(ytrain, mod, prior,
     thin = 2
   )
 )
-attr(fit_mcmc, "ppc") <- posterior_predict(fit_mcmc)
 summary(fit_mcmc)
 ```
 
@@ -223,21 +211,10 @@ HMC sampler
 Disturbance MH
   mean acceptance      : 0.688
   range acceptance     : [0.000, 0.774]
-  t with accept < 0.1  : 2
-
-Posterior predictive check
-<dgtf posterior predictive summary, level = 95%>
-
-Scalar metrics:
- target         metric value nominal_level
-      y     chi-square  1.71              
-      y           CRPS   9.7              
-      y       coverage 0.952          0.95
-      y          width  64.3              
-      y interval_score  87.8              
-     Rt          width 0.402              
+  t with accept < 0.1  : 2      
 
 ```{r}
+attr(fit_mcmc, "ppc") <- posterior_predict(fit_mcmc)
 plot(fit_mcmc, what = "yhat")
 summary(attr(fit_mcmc, "ppc"))
 ```
@@ -316,9 +293,9 @@ dgtf_compare_plot(
 dgtf_compare(list(HVA = fit, MCMC = fit_mcmc))
 ```
 
-<dgtf_comparison: 2 models, level = 95%>
+<dgtf_comparison (dgtf_fit): 2 rows, level = 95%>
  model n_param log_marglik crps_y chi_y coverage_y width_y interval_score_y elapsed_total elapsed_optim elapsed_sample
-   HVA      11        8.69    9.7  1.71       0.94    61.5             90.3        468.3s        370.5s          97.8s
+   HVA      11        8.06   9.55  1.57      0.948    62.9             87.9        274.3s        178.0s          96.2s
   MCMC      11          NA    9.7  1.71      0.952    64.3             87.8       3090.7s                             
 
 Note: `log_marglik` is the HVA SMC tail estimate of
@@ -332,7 +309,7 @@ dgtf_compare(list(HVA = fc, MCMC = fc_mcmc))
 
 <dgtf_comparison (dgtf_forecast): 2 rows, level = 95%>
  model horizon n_draws coverage   chi crps
-   HVA      14 500,000    0.929 0.399  3.1
+   HVA      14 500,000    0.929 0.312 3.07
   MCMC      14 500,000        1 0.304 3.12
 
 ```{r}
@@ -341,27 +318,27 @@ dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc))
 
 <dgtf_param_comparison: 11 parameters x 2 models, level = 95%>
  parameter model  mean median    sd   q_lo  q_hi
-      par1   HVA 0.621  0.632 0.273  0.054  1.12
+      par1   HVA 0.362  0.373 0.254 -0.169 0.837
       par1  MCMC 0.477  0.487 0.293 -0.126  1.02
-      par2   HVA  3.85   3.38  1.97   1.59  8.92
+      par2   HVA  3.16   2.77  1.68   1.25  7.53
       par2  MCMC  3.08   2.77   1.4    1.3  6.47
-       rho   HVA  18.8   18.7  2.47   14.6  24.3
+       rho   HVA  18.5   18.2  2.66   13.8  24.2
        rho  MCMC  17.3   17.2  2.31   13.2  22.2
-   seas[1]   HVA   8.5   8.29  1.92    5.4  12.8
+   seas[1]   HVA  8.98   8.85  1.62    6.2  12.6
    seas[1]  MCMC  11.3   11.3  2.02   7.42  15.2
-   seas[2]   HVA   8.6   8.46  1.55   5.95    12
+   seas[2]   HVA  8.97   8.88  1.37   6.57    12
    seas[2]  MCMC  10.5   10.4  1.65   7.56    14
-   seas[3]   HVA   4.4   4.12  1.68   1.92  8.35
+   seas[3]   HVA  5.28   5.07  1.58   2.81  8.96
    seas[3]  MCMC  7.34    7.3  1.75   4.11    11
-   seas[4]   HVA 0.932  0.762  0.69  0.123  2.71
+   seas[4]   HVA  1.29   1.07 0.936   0.18  3.69
    seas[4]  MCMC  3.04   2.94  1.38   0.73  6.03
-   seas[5]   HVA  0.84  0.679 0.646  0.112  2.44
+   seas[5]   HVA  1.15  0.972 0.827  0.141  3.23
    seas[5]  MCMC   2.6   2.47  1.23  0.629  5.22
-   seas[6]   HVA  12.7   12.5  2.35   8.68  17.9
+   seas[6]   HVA  14.2     14  1.95   10.7  18.3
    seas[6]  MCMC  15.7   15.6  2.15   11.6    20
-   seas[7]   HVA  6.12   5.89  1.71   3.44  10.2
+   seas[7]   HVA  7.26   7.06  1.81   4.35  11.3
    seas[7]  MCMC  9.22   9.21  1.85   5.59  12.9
-         W   HVA 0.009  0.008 0.001  0.007 0.011
+         W   HVA 0.009  0.009 0.001  0.007  0.01
          W  MCMC 0.008  0.008 0.001  0.007  0.01
 
 # 5. EpiEstim baseline
@@ -380,7 +357,7 @@ deseason_counts <- function(y, period = 7L, start_day = 1L) {
 y2 <- deseason_counts(ytrain, period = 7L)
 
 epi_baseline <- epiestim_baseline(
-  y       = ytrain,
+  y       = y2,
   mean_si = 4.7,
   sd_si   = 2.9,
   method  = "parametric_si",
@@ -394,22 +371,29 @@ epi_baseline
   250 time points (7 NA, 243 estimated)
 
 Last 6 rows:
-           lower    median    upper
-[245,] 0.6734591 0.8140501 0.972971
-[246,] 0.6978092 0.8442140 1.009797
-[247,] 0.7415577 0.8955997 1.069632
-[248,]        NA        NA       NA
-[249,]        NA        NA       NA
-[250,]        NA        NA       NA
+           lower    median     upper
+[245,] 0.6764307 0.8176421 0.9772642
+[246,] 0.7001539 0.8470506 1.0131895
+[247,] 0.7505463 0.9056918 1.0808783
+[248,]        NA        NA        NA
+[249,]        NA        NA        NA
+[250,]        NA        NA        NA
 
 ```{r}
 dgtf_compare_plot(
   list(
     HVA = fit,
-    MCMC = fit_mcmc,
-    EpiEstim = epi_baseline
+    MCMC = fit_mcmc
   ),
   what = "Rt"
+)
+
+p = dgtf_compare_plot(
+  list(
+    HVA = fit,
+    MCMC = fit_mcmc
+  ),
+  what = "seas"
 )
 ```
 
@@ -437,7 +421,6 @@ dl2 <- dgtf(
   method = "hva",
   control = vb_opts
 )
-attr(dl2, "ppc") <- posterior_predict(dl2, nrep = 100)
 
 summary(dl2)
 ```
@@ -449,36 +432,37 @@ System      : shift  (gain = softplus, lag = nbinomp [window = 30])
 Seasonality : period 7 (in_state = FALSE)
 Data        : n = 250 observations
 Posterior   : 5,000 draws
-Elapsed     : 160.59 s
-  optim     : 106.95 s
-  sampling  : 53.62 s
+Elapsed     : 165.86 s
+  optim     : 108.36 s
+  sampling  : 57.47 s
 
 Static parameters
  parameter    mean  median       sd    q025   q975
-         W 0.00892 0.00888 0.000825 0.00741 0.0106
-   seas[1]    8.92    8.74     1.97    5.64   13.1
-   seas[2]    8.92    8.78     1.41    6.56   12.1
-   seas[3]    5.67    5.41     1.98    2.64   10.3
-   seas[4]    1.38    1.01     1.33  0.0496      5
-   seas[5]    1.22   0.619      1.7 0.00417   5.91
-   seas[6]    17.2      17     2.49    12.9   22.6
-   seas[7]    8.01     7.8     2.04    4.67   12.6
-       rho      15    14.9     2.24    11.1   19.8
-      par1   0.257   0.224    0.179  0.0143   0.65
+         W 0.00908 0.00904 0.000797 0.00767 0.0107
+   seas[1]    11.5    11.3     1.83    8.34   15.5
+   seas[2]    10.4    10.3     1.43    7.84   13.5
+   seas[3]    7.33    7.15     1.62    4.62     11
+   seas[4]    2.05    1.72     1.44   0.276   5.59
+   seas[5]    1.31   0.861     1.41  0.0169   5.14
+   seas[6]    15.4    15.2     2.42    11.2   20.7
+   seas[7]     9.8    9.64     1.95    6.55   14.1
+       rho    16.6    16.5     2.19    12.8   21.3
+      par1   0.454    0.46    0.117   0.218  0.663
 
 Latent state psi (median band)
-  median range : [-0.202, 0.622]   IQR median : 0.487
+  median range : [-0.373, 0.611]   IQR median : 0.617
 
 Convergence (HVA marglik trace)
   iterations             : 1000
-  late window (last 50 ) : median 11.5, MAD 4.78
-  early window           : median 18.9, MAD 11.4
-  MAD ratio (late/early) : 0.42  [substantial stabilization]
-  tail drift (in MADs)   : -0.07  [flat]
-  stabilized             : iter ~ 100  (rolling-MAD < 2x final MAD)
-  last large spike       : iter ~ 191  (|deviation| > 5x final MAD)
+  late window (last 50 ) : median 5.86, MAD 2.11
+  early window           : median 28.9, MAD 23.4
+  MAD ratio (late/early) : 0.0902  [substantial stabilization]
+  tail drift (in MADs)   : -0.84  [flat]
+  stabilized             : iter ~ 748  (rolling-MAD < 2x final MAD)
+  last large spike       : iter ~ 887  (|deviation| > 5x final MAD)        
 
 ```{r}
+attr(dl2, "ppc") <- posterior_predict(dl2, nrep = 100)
 summary(attr(dl2, "ppc"))
 plot(dl2, what = "yhat")
 ```
@@ -487,12 +471,12 @@ plot(dl2, what = "yhat")
 
 Scalar metrics:
  target         metric value nominal_level
-      y     chi-square  1.76              
-      y           CRPS  9.83              
-      y       coverage 0.956          0.95
-      y          width  74.2              
-      y interval_score  89.9              
-     Rt          width 0.313              
+      y     chi-square   1.7              
+      y           CRPS    10              
+      y       coverage  0.96          0.95
+      y          width    67              
+      y interval_score  85.8              
+     Rt          width 0.291              
 
 ```{r}
 set.seed(123)
@@ -513,12 +497,10 @@ ar_fit <- dgtf(
   method  = "hva",
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
-attr(ar_fit, "ppc") <- posterior_predict(ar_fit, nrep = 100) # truth in a sim study
 
 summary(ar_fit)
 ```
 
-r$> summary(ar_fit)
 DGTF model fit (method = HVA, engine = VB)
 --------------------------------------------------
 Observation : nbinom + link identity
@@ -526,35 +508,36 @@ System      : identity  (gain = softplus, lag = uniform [window = 3])
 Seasonality : period 7 (in_state = FALSE)
 Data        : n = 250 observations
 Posterior   : 5,000 draws
-Elapsed     : 386.77 s
-  optim     : 257.00 s
-  sampling  : 129.76 s
+Elapsed     : 383.75 s
+  optim     : 254.06 s
+  sampling  : 129.69 s
 
 Static parameters
- parameter    mean  median       sd    q025    q975
-         W 0.00325 0.00324 0.000211 0.00286 0.00368
-   seas[1]    6.57    6.37      1.8    3.71    10.8
-   seas[2]    7.68    7.52      1.6    4.99    11.2
-   seas[3]    1.19   0.735     1.46  0.0542    4.98
-   seas[4]   0.214  0.0846    0.339 0.00054    1.19
-   seas[5]   0.411   0.204    0.535 0.00184    1.91
-   seas[6]    12.3    12.1     1.77    9.21    16.1
-   seas[7]    5.86    5.62     1.82    3.07    10.1
-       rho    10.5    10.4     1.41    7.92    13.4
+ parameter    mean  median       sd     q025    q975
+         W 0.00317 0.00317 0.000183  0.00282 0.00355
+   seas[1]    6.76    6.56     1.79     3.85    10.8
+   seas[2]    7.49    7.35     1.39     5.07    10.5
+   seas[3]    1.15   0.702     1.49    0.068    4.99
+   seas[4]   0.205  0.0815    0.322 0.000493    1.12
+   seas[5]   0.425   0.215    0.552  0.00198    1.94
+   seas[6]    12.8    12.6     2.04     9.29    17.3
+   seas[7]    5.92    5.68     1.77     3.21      10
+       rho    11.2    11.1     1.35      8.8    14.1
 
 Latent state psi (median band)
-  median range : [-1.66, -0.807]   IQR median : 0.426
+  median range : [-1.67, -0.805]   IQR median : 0.433
 
 Convergence (HVA marglik trace)
   iterations             : 1000
-  late window (last 50 ) : median 11.1, MAD 3.48
-  early window           : median 13.9, MAD 17.4
-  MAD ratio (late/early) :  0.2  [substantial stabilization]
-  tail drift (in MADs)   : -0.03  [flat]
-  stabilized             : iter ~ 170  (rolling-MAD < 2x final MAD)
-  last large spike       : iter ~ 333  (|deviation| > 5x final MAD)
+  late window (last 50 ) : median  9.5, MAD 3.37
+  early window           : median 13.2, MAD 16.7
+  MAD ratio (late/early) : 0.202  [substantial stabilization]
+  tail drift (in MADs)   : -0.12  [flat]
+  stabilized             : iter ~ 155  (rolling-MAD < 2x final MAD)
+  last large spike       : iter ~ 923  (|deviation| > 5x final MAD)       
 
 ```{r}
+attr(ar_fit, "ppc") <- posterior_predict(ar_fit, nrep = 100) # truth in a sim study
 summary(attr(ar_fit, "ppc"))
 plot(ar_fit, what = "yhat")
 ```
@@ -563,11 +546,11 @@ plot(ar_fit, what = "yhat")
 
 Scalar metrics:
  target         metric value nominal_level
-      y     chi-square  2.71              
+      y     chi-square   2.7              
       y           CRPS  13.4              
-      y       coverage 0.916          0.95
-      y          width  86.2              
-      y interval_score   116              
+      y       coverage 0.904          0.95
+      y          width  83.7              
+      y interval_score   117              
      Rt          width     0              
 
 ```{r}
@@ -580,7 +563,7 @@ dgtf_compare_plot(
   what = "yhat"
 )
 
-dgtf_compare_plot(
+p = dgtf_compare_plot(
   list(
     DH = fit,
     DL = dl_fit,
@@ -609,11 +592,11 @@ dgtf_compare(
 )
 ```
 
-<dgtf_comparison: 3 models, level = 95%>
+<dgtf_comparison (dgtf_fit): 3 rows, level = 95%>
  model n_param log_marglik crps_y chi_y coverage_y width_y interval_score_y elapsed_total elapsed_optim elapsed_sample
-    DH      11        8.69    9.7  1.71       0.94    61.5             90.3        468.3s        370.5s          97.8s
-    DL      10        11.5   9.83  1.76      0.956    74.2             89.9        160.6s        106.9s          53.6s
-    AR       9        11.1   13.4  2.71      0.916    86.2              116        386.8s        257.0s         129.8s
+    DH      11        8.06   9.55  1.57      0.948    62.9             87.9        274.3s        178.0s          96.2s
+    DL      10        5.86     10   1.7       0.96      67             85.8        165.9s        108.4s          57.5s
+    AR       9         9.5   13.4   2.7      0.904    83.7              117        383.8s        254.1s         129.7s
 
 ```{r}
 set.seed(123)
@@ -626,20 +609,20 @@ Forecast draws : 500,000
 
 Forecast:
  step lower median upper truth hit
-    1     8     18    34    22   *
-    2     5     13    26    20   *
-    3     6     15    28    22   *
-    4     6     15    28    15   *
-    5     3     11    22    12   *
-    6     1      6    15    12   *
-    7     1      5    13     7   *
-    8     7     16    31    16   *
-    9     4     11    24     6   *
-   10     5     13    27     6   *
-   11     5     14    27     8   *
-   12     3     10    21    10   *
-   13     1      6    15     7   *
-   14     1      5    13    16    
+    1     9     20    36    22   *
+    2     6     15    28    20   *
+    3     6     16    30    22   *
+    4     6     16    31    15   *
+    5     4     12    25    12   *
+    6     2      8    18    12   *
+    7     1      6    15     7   *
+    8     8     18    34    16   *
+    9     5     14    27     6   *
+   10     6     15    29     6   *
+   11     6     15    30     8   *
+   12     4     12    25    10   *
+   13     2      7    17     7   *
+   14     1      6    15    16    
 
 ```{r}
 summary(dh_fc)
@@ -652,8 +635,8 @@ Forecast draws : 500,000
 Scoring (vs ypred_true):
      metric value nominal_level
    coverage 0.929          0.95
- chi-square 0.399              
-       CRPS   3.1              
+ chi-square 0.312              
+       CRPS  3.07              
 
 ```{r}
 set.seed(123)
@@ -666,20 +649,20 @@ Forecast draws : 500,000
 
 Forecast:
  step lower median upper truth hit
-    1    10     23    42    22   *
-    2     7     18    37    20   *
-    3     8     20    40    22   *
-    4     8     20    40    15   *
-    5     6     17    36    12   *
-    6     3     12    29    12   *
-    7     2      9    24     7   *
-    8     9     23    45    16   *
-    9     7     18    38     6    
-   10     8     20    41     6    
-   11     8     20    41     8   *
-   12     6     17    37    10   *
-   13     3     12    29     7   *
-   14     2      9    24    16   *
+    1     9     21    39    22   *
+    2     7     17    33    20   *
+    3     8     19    36    22   *
+    4     8     19    36    15   *
+    5     6     16    32    12   *
+    6     3     10    24    12   *
+    7     2      9    20     7   *
+    8     9     21    40    16   *
+    9     7     17    34     6    
+   10     8     19    37     6    
+   11     7     18    36     8   *
+   12     6     16    32    10   *
+   13     3     10    24     7   *
+   14     2      9    20    16   *
 
 ```{r}
 summary(dl_fc)
@@ -692,8 +675,8 @@ Forecast draws : 500,000
 Scoring (vs ypred_true):
      metric value nominal_level
    coverage 0.857          0.95
- chi-square 0.263              
-       CRPS  4.17           
+ chi-square 0.247              
+       CRPS  3.72              
 
 ```{r}
 set.seed(123)
@@ -706,19 +689,19 @@ Forecast draws : 500,000
 
 Forecast:
  step lower median upper truth hit
-    1     8     21    41    22   *
+    1     9     21    41    22   *
     2     6     17    36    20   *
     3     6     18    39    22   *
-    4     7     20    45    15   *
-    5     4     14    38    12   *
+    4     7     21    45    15   *
+    5     4     15    37    12   *
     6     3     12    34    12   *
     7     2     11    33     7   *
-    8     7     21    48    16   *
-    9     5     17    44     6   *
-   10     6     18    46     6   *
-   11     7     21    52     8   *
-   12     3     15    45    10   *
-   13     2     12    42     7   *
+    8     8     21    48    16   *
+    9     5     18    44     6   *
+   10     6     19    46     6   *
+   11     7     21    51     8   *
+   12     4     15    44    10   *
+   13     2     12    41     7   *
    14     2     11    40    16   *
 
 ```{r}
@@ -732,8 +715,8 @@ Forecast draws : 500,000
 Scoring (vs ypred_true):
      metric value nominal_level
    coverage     1          0.95
- chi-square 0.263              
-       CRPS  3.93              
+ chi-square  0.26              
+       CRPS     4                      
 
 ```{r}
 dgtf_compare(
@@ -747,6 +730,6 @@ dgtf_compare(
 
 <dgtf_comparison (dgtf_forecast): 3 rows, level = 95%>
  model horizon n_draws coverage   chi crps
-    DH      14 500,000    0.929 0.399  3.1
-    DL      14 500,000    0.857 0.263 4.17
-    AR      14 500,000        1 0.263 3.93
+    DH      14 500,000    0.929 0.312 3.07
+    DL      14 500,000    0.857 0.247 3.72
+    AR      14 500,000        1  0.26    4
