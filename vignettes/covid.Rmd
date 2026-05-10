@@ -626,7 +626,7 @@ Forecast:
 
 ```{r}
 summary(dh_fc)
-plot_dgtf_y(fit, dh_fc)
+p = plot_dgtf_y(fit, dh_fc)
 ```
 
 <dgtf forecast summary: h = 14, level = 95%>
@@ -733,3 +733,12 @@ dgtf_compare(
     DH      14 500,000    0.929 0.312 3.07
     DL      14 500,000    0.857 0.247 3.72
     AR      14 500,000        1  0.26    4
+
+
+```{r}
+plot_dgtf_lag(list(
+  DH = fit,
+  DL = dl2,
+  AR = ar_fit
+), xlim = 14)
+```
