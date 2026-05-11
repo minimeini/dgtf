@@ -665,6 +665,32 @@ namespace VB
                 Rcpp::Rcout << std::endl;
             }
 
+            // ------------------------------------------------------------------
+            // For discounted runs, the per-time-step innovation variance W_t is
+            // computed adaptively by LinearBayes during inference rather than
+            // estimated as a single scalar. The forecast routine in
+            // src/export.cpp::dgtf_forecast() needs a representative scalar W
+            // to drive the leading-psi random walk past t = T; without one it
+            // falls back to model.derr.par1 (the initial constructor W), which
+            // is generally not what inference used. Compute the last in-sample
+            // W_t here using the post-optimization model parameters and stash
+            // it as a class member for get_output() to expose.
+            //
+            // Wt is shaped nP x nP x (T + 1); the leading-component variance
+            // Wt(0, 0, T) is the scalar that drives the shift-system random
+            // walk on psi.
+            // ------------------------------------------------------------------
+            if (use_discount)
+            {
+                LBA::LinearBayes lba(use_discount, discount_factor);
+                lba.filter(model, y);
+                arma::cube Wt = lba.get_Wt(model, y, discount_factor);
+                if (Wt.n_slices > 0 && Wt.n_rows > 0 && Wt.n_cols > 0)
+                {
+                    W_forecast_ = Wt(0, 0, Wt.n_slices - 1);
+                    W_forecast_set_ = true;
+                }
+            }
 
             if (model.zero.inflated)
             {
@@ -918,6 +944,11 @@ namespace VB
                 output["zzcoef"] = Rcpp::wrap(zzcoef_stored.t());
             }
 
+            if (W_forecast_set_)
+            {
+                output["W_forecast"] = Rcpp::wrap(W_forecast_);
+            }
+
             output["inferred"] = Rcpp::wrap(param_selected);
             output["elapsed_opt_us"]    = (double) elapsed_opt_us;
             output["elapsed_sample_us"] = (double) elapsed_sample_us;
@@ -936,6 +967,9 @@ namespace VB
         HybridParams grad_mu, grad_vecB, grad_d, grad_tau;
         arma::vec mu, d, gamma, nu, eps, eta, eta_tilde; // m x 1
         arma::vec marglike_stored; //, condlike_stored, grad_stored; // niter x 1
+
+        double W_forecast_     = 0.0;
+        bool W_forecast_set_ = false;
 
         arma::vec xi;                                    // k x 1
         arma::mat B;                                     // m x k

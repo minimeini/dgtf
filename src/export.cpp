@@ -650,6 +650,14 @@ Rcpp::List dgtf_forecast(
     {
         W_stored = Rcpp::as<arma::vec>(output["W"]);
     }
+    else if (output.containsElementNamed("W_forecast"))
+    {
+        // Discounted-variational fit: no inferred scalar W, but the
+        // engine stored the last in-sample W_t (the discount-derived
+        // variance at t = T). Use it as the per-step random-walk
+        // variance for the forecast horizon.
+        W_stored.fill(Rcpp::as<double>(output["W_forecast"]));
+    }
 
     arma::vec rho_stored(nsample);
     rho_stored.fill(model.dobs.par2);
@@ -807,11 +815,16 @@ Rcpp::List dgtf_forecast(
             // by holding the last value (matches the original behavior).
             arma::mat ft = ytmp;
             arma::mat psi = ytmp;
+            const double sd_W = std::sqrt(std::max(0.0, mod.derr.par1));
             for (unsigned int s = 0; s < nrep; s++)
             {
                 psi.submat(0, s, ntime, s) = psi_stored.col(i);
-                psi.submat(ntime + 1, s, ntime + k, s)
-                    .fill(psi.at(ntime, s));
+                // psi.submat(ntime + 1, s, ntime + k, s)
+                //     .fill(psi.at(ntime, s));
+                for (unsigned int j = 1; j <= k; j++)
+                {
+                    psi.at(ntime + j, s) = psi.at(ntime + j - 1, s) + (sd_W > 0.0 ? sd_W * arma::randn() : 0.0);
+                }
             }
 
             arma::mat hpsi =

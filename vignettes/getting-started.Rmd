@@ -104,10 +104,52 @@ fit <- dgtf(
   control = vb_control(iter = 1000, n_sample = 5000, n_particle = 500)
 )
 summary(fit)
+```
+
+DGTF model fit (method = HVA)
+--------------------------------------------------
+Observation : nbinom + link identity
+System      : shift  (gain = softplus, lag = lognorm [window = 30])
+Seasonality : period 1 (in_state = FALSE)
+Data        : n = 200 observations
+Posterior   : 5,000 draws
+Elapsed     : 152.88 s
+  optim     : 102.83 s
+  sampling  : 50.04 s
+
+Static parameters
+ parameter  mean median      sd    q025   q975
+         W 0.012  0.012 0.00139 0.00945 0.0149
+      seas  2.28   2.23   0.535     1.4    3.5
+       rho  34.6   34.2    4.95    25.7   45.4
+      par1  1.06   1.06   0.161   0.735   1.37
+      par2 0.389  0.362   0.157   0.177  0.767
+
+Latent state psi (median band)
+  median range : [-0.129, 1.25]   IQR median : 0.643
+
+Convergence (HVA marglik trace)
+  iterations             : 1000
+  late window (last 50 ) : median -0.294, MAD 0.449
+  early window           : median 1.54, MAD 3.22
+  MAD ratio (late/early) : 0.14  [substantial stabilization]
+  tail drift (in MADs)   : 0.27  [flat]
+  stabilized             : iter ~ 260  (rolling-MAD < 2x final MAD)
+  last large spike       : iter ~ 298  (|deviation| > 5x final MAD)
+
+```{r}
 truth_list <- list(W = 0.01, seas = 2, rho = 30, par1 = 1.35, par2 = 0.32)
 param_recovery(fit, truth_list, digits = 3)
 ```
 
+ parameter truth   mean median    sd   q_lo   q_hi   bias   mae  rmse  crps  
+         W  0.01  0.012  0.012 0.001  0.009  0.015  0.002 0.002 0.002 0.001 *
+      seas  2.00  2.278  2.225 0.535  1.401  3.499  0.278 0.457 0.603 0.160 *
+       rho 30.00 34.561 34.190 4.954 25.739 45.368  4.561 5.346 6.733 2.571 *
+      par1  1.35  1.057  1.058 0.161  0.735  1.368 -0.293 0.297 0.334 0.206 *
+      par2  0.32  0.389  0.362 0.157  0.177  0.767  0.069 0.119 0.171 0.037 *
+---
+'*' indicates the truth lies within the 95% credible interval
 
 # 4. Inspect
 
@@ -115,22 +157,48 @@ param_recovery(fit, truth_list, digits = 3)
 plot(fit, what = "marglik")
 plot(fit, what = "Rt", truth = Rt_train)
 plot(fit, what = "W")
+
+ggsave(file.path(opath,'covid_model_comparison_yhat_yforecast.pdf'), plot = last_plot(), device = "pdf", dpi = 300, width = 7, height = 2)
 ```
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
 attr(fit, "ppc") <- posterior_predict(fit, nrep = 100, Rt = Rt_train)   # truth in a sim study
-summary(attr(fit, "ppc"))
 plot(fit, what = "yhat", truth = ytrain)
+summary(attr(fit, "ppc"))
 ```
+
+<dgtf posterior predictive summary, level = 95%>
+
+Scalar metrics:
+ target         metric value nominal_level
+      y     chi-square 0.966              
+      y           CRPS  32.5              
+      y       coverage 0.965          0.95
+      y          width   239              
+      y interval_score   249              
+     Rt            MAE 0.116              
+     Rt           RMSE  0.15              
+     Rt       coverage 0.899          0.95
+     Rt          width 0.375              
+     Rt interval_score 0.486              
 
 ```{r}
 fc <- dgtf_forecast_fit(fit, h = 10, ypred_true = ytest)
-summary(fc)
 plot_dgtf_y(fit, fc)
-# plot_dgtf_y(ppc, fc, truth_in = fit$y)
 plot(fc)
+summary(fc)
 ```
+
+<dgtf forecast summary: h = 10, level = 95%>
+Forecast draws : 500,000
+
+Scoring (vs ypred_true):
+     metric  value nominal_level
+   coverage      1          0.95
+ chi-square 0.0964              
+       CRPS     24              
+
 
 # 5. Switch the inference method
 
@@ -150,8 +218,41 @@ fit_mcmc <- dgtf(ytrain, mod, prior,
 )
 
 summary(fit_mcmc)
-
 ```
+
+
+DGTF model fit (method = MCMC)
+--------------------------------------------------
+Observation : nbinom + link identity
+System      : shift  (gain = softplus, lag = lognorm [window = 30])
+Seasonality : period 1 (in_state = FALSE)
+Data        : n = 200 observations
+Posterior   : 5,000 draws
+Elapsed     : 2821.63 s
+
+Static parameters
+ parameter  mean  median      sd    q025   q975   ess  rhat
+         W  0.01 0.00992 0.00102 0.00827 0.0122 2,967 1.001
+      seas  2.46    2.43   0.525    1.51   3.57   460 1.000
+       rho  29.6    29.4    4.52    21.6     39 2,739 1.001
+      par1   1.1     1.1    0.17   0.783   1.44   769 1.000
+      par2 0.491   0.453   0.201   0.215  0.994   922 1.000
+
+Latent state psi (median band)
+  median range : [-0.182, 1.28]   IQR median : 0.706
+
+HMC sampler
+  acceptance rate      : 0.732
+  leapfrog step        : 0.1845
+  leapfrog steps       : 11
+  max |dH|             : 3.362e+11
+  99% |dH|             : 3.527
+  mean ||grad log pi|| : 21.18
+
+Disturbance MH
+  mean acceptance      : 0.763
+  range acceptance     : [0.000, 0.802]
+  t with accept < 0.1  : 2
 
 ```{r}
 plot(fit_mcmc, what = "Rt", truth = log1p(exp(sim$psi)))
@@ -166,23 +267,56 @@ plot(fit_mcmc, what = "par2", truth = 0.3226017, type = "hist")
 
 ```{r plot, fig.alt = "Posterior intensity vs simulated series"}
 # In-sample posterior predictive check
-ppc_mcmc <- posterior_predict(fit_mcmc, nrep = 100, Rt = Rt_train)   # truth in a sim study
-summary(ppc_mcmc)
-plot(ppc_mcmc, what = "yhat", truth = ytrain, main = "Posterior predictive check")
+attr(fit_mcmc, "ppc") <- posterior_predict(fit_mcmc, nrep = 100, Rt = Rt_train)   # truth in a sim study
+plot(fit_mcmc, what = "yhat", truth = ytrain)
+summary(attr(fit_mcmc, "ppc"))
+```
 
+<dgtf posterior predictive summary, level = 95%>
+
+Scalar metrics:
+ target         metric value nominal_level
+      y     chi-square  1.03              
+      y           CRPS    33              
+      y       coverage 0.975          0.95
+      y          width   261              
+      y interval_score   263              
+     Rt            MAE 0.124              
+     Rt           RMSE 0.159              
+     Rt       coverage 0.975          0.95
+     Rt          width 0.437              
+     Rt interval_score 0.459              
+
+```{r}
 fc_mcmc = dgtf_forecast_fit(fit_mcmc, h = 10, ypred_true = ytest)
 print(fc_mcmc)
 ```
 
+<dgtf forecast: h = 10, level = 95%>
+Forecast draws : 500,000
+
+Forecast:
+ step lower median upper truth hit
+    1   110    179   276   224   *
+    2    95    157   247   178   *
+    3    82    142   235   196   *
+    4    71    129   227   157   *
+    5    61    117   221   154   *
+    6    52    106   216   161   *
+    7    44     96   211   130   *
+    8    37     88   209   133   *
+    9    31     80   207    92   *
+   10    26     72   206   122   *
+
 ```{r}
 dgtf_compare_plot(
-    list(HVA = ppc, MCMC = ppc_mcmc),
+    list(HVA = fit, MCMC = fit_mcmc),
     what = "yhat"
 )
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = log1p(exp(sim$psi))),
+         True = Rt_train),
     what = "Rt"
 )
 
@@ -200,13 +334,13 @@ dgtf_compare_plot(
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = 1.386262),
+         True = 1.35),
     what = "par1"
 )
 
 dgtf_compare_plot(
     list(HVA = fit, MCMC = fit_mcmc,
-         True = 0.3226017),
+         True = 0.32),
     what = "par2"
 )
 
@@ -227,11 +361,61 @@ truth_list <- list(
 )
 
 dgtf_compare(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
-dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
+```
 
+<dgtf_comparison (dgtf_fit): 2 rows, level = 95%>
+ model n_param log_marglik crps_y chi_y coverage_y width_y interval_score_y elapsed_total elapsed_optim elapsed_sample n_param_truth param_coverage_rate
+   HVA       5      -0.294   32.5 0.966      0.965     239              249        152.9s        102.8s          50.0s             5                   1
+  MCMC       5          NA     33  1.03      0.975     261              263       2821.6s                                          5                   1
+
+Note: `log_marglik` is the HVA SMC tail estimate of
+log p(y | gamma_final); MCMC fits have no equivalent stored
+and show NA. Pointwise log-likelihood is not currently
+exposed by either inference method.
+
+Use `dgtf_compare_params(fits, truth)` for the
+per-parameter recovery table.
+
+```{r}
+dgtf_compare_params(list(HVA = fit, MCMC = fit_mcmc), truth = truth_list)
+```
+
+<dgtf_param_comparison: 5 parameters x 2 models, level = 95%>
+ parameter model truth  mean median    sd  q_lo  q_hi   bias   mae  rmse  crps  
+      par1   HVA  1.35  1.06   1.06 0.161 0.735  1.37 -0.293 0.297 0.334 0.206 *
+      par1  MCMC  1.35   1.1    1.1  0.17 0.783  1.44 -0.249 0.262 0.301 0.166 *
+      par2   HVA  0.32 0.389  0.362 0.157 0.177 0.767  0.069 0.119 0.171 0.037 *
+      par2  MCMC  0.32 0.491  0.453 0.201 0.215 0.994  0.171 0.192 0.264 0.085 *
+       rho   HVA    30  34.6   34.2  4.95  25.7  45.4   4.56  5.35  6.73  2.57 *
+       rho  MCMC    30  29.6   29.4  4.52  21.6    39 -0.393  3.65  4.53   1.1 *
+      seas   HVA     2  2.28   2.23 0.535   1.4   3.5  0.278 0.457 0.603  0.16 *
+      seas  MCMC     2  2.46   2.43 0.525  1.51  3.57  0.459 0.555 0.697  0.26 *
+         W   HVA  0.01 0.012  0.012 0.001 0.009 0.015  0.002 0.002 0.002 0.001 *
+         W  MCMC  0.01  0.01   0.01 0.001 0.008 0.012      0 0.001 0.001     0 *
+---
+'*' indicates the truth lies within the 95% credible interval
+
+```{r}
 param_recovery(fit, truth_list)
 ```
 
+ parameter truth   mean median    sd   q_lo   q_hi   bias   mae  rmse  crps  
+         W  0.01  0.012  0.012 0.001  0.009  0.015  0.002 0.002 0.002 0.001 *
+      seas  2.00  2.278  2.225 0.535  1.401  3.499  0.278 0.457 0.603 0.160 *
+       rho 30.00 34.561 34.190 4.954 25.739 45.368  4.561 5.346 6.733 2.571 *
+      par1  1.35  1.057  1.058 0.161  0.735  1.368 -0.293 0.297 0.334 0.206 *
+      par2  0.32  0.389  0.362 0.157  0.177  0.767  0.069 0.119 0.171 0.037 *
+---
+'*' indicates the truth lies within the 95% credible interval
+
+```{r}
+dgtf_compare(list(HVA = fc, MCMC = fc_mcmc))
+```
+
+<dgtf_comparison (dgtf_forecast): 2 rows, level = 95%>
+ model horizon n_draws coverage    chi crps
+   HVA      10 500,000        1 0.0964   24
+  MCMC      10 500,000        1  0.123   23
 
 # 6. Model comparison
 
@@ -240,14 +424,15 @@ one-line shortcuts:
 
 ```{r canonical}
 set.seed(123)
-m1_init <- dgtf_hawkes(
-  meanlog = 1.35,
-  sigma2 = 0.32,
-  seasonality = seas_period(1, init = 2)
-)
+# m1_init <- dgtf_hawkes(
+#   meanlog = 1.35,
+#   sigma2 = 0.32,
+#   seasonality = seas_period(1, init = 2)
+# )
+
 m1_fit <- dgtf(
   y = ytrain,
-  model = m1_init,
+  model = mod,
   prior = dgtf_prior(
     seasonality = normal(0, 10),
     rho = inv_gamma(1, 1),
@@ -262,7 +447,7 @@ m1_fit <- dgtf(
     n_sample = 5000,
     n_particle = 500,
     use_discount = TRUE,
-    discount_factor = 0.9
+    discount_factor = 0.92
   )
 )
 attr(m1_fit, "ppc") <- posterior_predict(m1_fit, nrep = 100, Rt = Rt_train) # truth in a sim study
@@ -274,12 +459,12 @@ m2_prior <- dgtf_prior(
   seasonality = normal(0, 10),
   W           = inv_gamma(1, 1),
   rho         = inv_gamma(1, 1),
-  lag         = list(par1 = dist_beta(1.5, 2))
+  lag         = list(par1 = dist_beta(1, 1))
 )
 m2_init <- dgtf_distributed_lag(
   r = 4,
   kappa = 0.395,
-  seasonality = seas_period(2, init = c(1, 2))
+  seasonality = seas_period(1, init = runif(1, 0, 10))
 )
 m2_fit <- dgtf(
   y       = ytrain,
@@ -336,7 +521,6 @@ attr(m4_fit, "ppc") <- posterior_predict(m4_fit,
   Rt = Rt_train
 ) # truth in a sim study
 m4_fc <- dgtf_forecast_fit(m4_fit, h = 10, ypred_true = ytest)
-
 ```
 
 ```{r}
@@ -378,11 +562,11 @@ dgtf_compare(list(
 
 <dgtf_comparison (dgtf_fit): 5 rows, level = 95%>
  model n_param log_marglik crps_y chi_y coverage_y width_y interval_score_y elapsed_total elapsed_optim elapsed_sample mae_Rt rmse_Rt coverage_Rt interval_score_Rt
-    M0       5      -0.461   32.5  0.97      0.965     242              250        157.4s        103.8s          53.6s  0.117   0.152        0.91             0.483
-    M1       4       0.878   34.9  1.03       0.97     261              270        160.8s        100.4s          60.4s  0.137   0.181       0.724              1.03
-    M2       5       -0.19   33.8   1.1      0.965     239              261        147.3s         96.8s          50.5s  0.118   0.153       0.925             0.494
-    M3       3       -2.43   37.6  2.28      0.789     279              313        315.5s        208.8s         106.7s     NA      NA          NA                NA
-    M4       2    1.29e+03     17  18.5       0.97     218              221        328.6s        218.1s         110.4s     NA      NA          NA                NA
+    M0       5      -0.294   32.5 0.966      0.965     239              249        152.9s        102.8s          50.0s  0.116    0.15       0.899             0.486
+    M1       4       0.882   35.7  1.06      0.975     267              276        148.5s         94.7s          53.7s  0.136   0.172       0.558              1.67
+    M2       4   -0.000808   33.5  1.06       0.96     242              260        141.3s         93.0s          48.3s  0.121   0.157       0.915             0.492
+    M3       3       -1.84   37.6  2.28      0.784     276              312        305.3s        202.5s         102.7s     NA      NA          NA                NA
+    M4       2     1.4e+03   17.1  19.4       0.97     223              226        323.5s        213.8s         109.7s     NA      NA          NA                NA
 
 ```{r}
 dgtf_compare_params(list(
@@ -393,6 +577,27 @@ dgtf_compare_params(list(
   M4 = m4_fit
 ))
 ```
+
+<dgtf_param_comparison: 5 parameters x 5 models, level = 95%>
+ parameter model  mean median    sd  q_lo  q_hi
+      par1    M0  1.06   1.06 0.161 0.735  1.37
+      par1    M1 0.756  0.757 0.128 0.501     1
+      par1    M2 0.482  0.484 0.058 0.367  0.59
+      par2    M0 0.389  0.362 0.157 0.177 0.767
+      par2    M1 0.363  0.343 0.123 0.184 0.666
+       rho    M0  34.6   34.2  4.95  25.7  45.4
+       rho    M1  26.6   26.4  3.43  20.5    34
+       rho    M2  34.1   33.7  5.12  25.1    45
+       rho    M3  25.4   25.1  3.97  18.7    34
+      seas    M0  2.28   2.23 0.535   1.4   3.5
+      seas    M1   2.2   2.12 0.601  1.24  3.56
+      seas    M2  2.57   2.52 0.607  1.56  3.98
+      seas    M3 0.404  0.362  0.22 0.097 0.929
+      seas    M4 0.487  0.661  1.16 -2.24   2.3
+         W    M0 0.012  0.012 0.001 0.009 0.015
+         W    M2 0.013  0.012 0.002  0.01 0.016
+         W    M3 0.004  0.004     0 0.003 0.005
+         W    M4 0.173  0.168 0.037 0.114 0.257
 
 ```{r}
 dgtf_compare(list(
@@ -406,33 +611,47 @@ dgtf_compare(list(
 
 <dgtf_comparison (dgtf_forecast): 4 rows, level = 95%>
  model horizon n_draws coverage    chi crps
-    M0      10 500,000      0.9 0.0795 24.9
-    M1      10 500,000        1 0.0244 11.4
-    M2      10 500,000      0.7  0.116 32.4
-    M3      10 500,000        1  0.151 28.6
+    M0      10 500,000        1 0.0964   24
+    M1      10 500,000        1  0.025 11.5
+    M2      10 500,000      0.9  0.133 31.8
+    M3      10 500,000        1  0.153 28.9
 
 ```{r}
 dgtf_compare_plot(
-  list(M0 = fc, M1 = m1_fc, M2 = m2_fc, M3 = m3_fc, True = ytest),
+  list(
+    M0 = fc, 
+    M1 = m1_fc, 
+    M2 = m2_fc, 
+    M3 = m3_fc, 
+    True = ytest
+  ),
   what = "yhat",
   time = length(ytrain) + seq_len(fc$horizon) # align x-axis with the forecast window
 )
 
 fits_list <- list(
   M0 = fit,
-  M1 = m1_fit
-  # M2 = m2_fit,
-  # M3 = m3_fit
+  M1 = m1_fit,
+  M2 = m2_fit,
+  M3 = m3_fit
 )
 
 fcs_list <- list(
   M0 = fc,
-  M1 = m1_fc
-  # M2 = m2_fc,
-  # M3 = m3_fc
+  M1 = m1_fc,
+  M2 = m2_fc,
+  M3 = m3_fc
 )
 
 plot_dgtf_y_compare(fits_list, fcs_list)
+```
+
+```{r}
+plot_dgtf_lag(list(
+  M0 = fit,
+  M1 = m1_fit,
+  M2 = m2_fit
+), xlim = 21)
 ```
 
 # 7. EpiEstim baseline
@@ -454,7 +673,22 @@ epi_baseline <- epiestim_baseline(
   window  = 7
 )
 epi_baseline
+```
 
+<epiestim_baseline: method = parametric_si, window = 7, align = center, level = 0.95>
+  SI mean = 4.7, SI sd = 2.9
+  200 time points (7 NA, 193 estimated)
+
+Last 6 rows:
+           lower    median     upper
+[195,] 0.7196854 0.7497249 0.7805888
+[196,] 0.6779300 0.7079132 0.7387678
+[197,] 0.6493553 0.6796007 0.7107710
+[198,]        NA        NA        NA
+[199,]        NA        NA        NA
+[200,]        NA        NA        NA
+
+```{r}
 dgtf_compare_plot(
   list(
     M0       = fit,

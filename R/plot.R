@@ -1628,8 +1628,8 @@ plot_dgtf_y_compare <- function(fits,
         p <- p + ggplot2::geom_vline(
             xintercept = split_x,
             linetype   = "dotted",
-            color      = "grey50",
-            alpha      = 0.7)
+            color      = "black",
+            alpha      = 0.8)
     }
     p
 }
