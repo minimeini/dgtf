@@ -1,0 +1,41 @@
+Package: dgtf
+Type: Package
+Title: Variational and Monte Carlo Inference for Bayesian State-Space
+        Models of Count Data
+Version: 0.1.0
+Authors@R: c(
+    person(given = "Meini", family = "Tang", role = c("aut", "cre"),
+           email = "mtang41@ucsc.edu",
+           comment = c(ORCID = "0000-0001-5338-8772")),
+    person(given = "Raquel", family = "Prado", role = "aut",
+           email = "rprado@ucsc.edu",
+           comment = c(ORCID = "0000-0001-6709-7191"))
+    )
+Description: Bayesian inference for a general class of state-space models
+    for count data, providing a unified interface to variational Bayes and
+    Markov chain Monte Carlo. Models are assembled from modular components
+    for the observation distribution, link function, gain function, lag
+    distribution, system equation, and system error, and support Poisson
+    and negative binomial observations together with seasonal and
+    regression terms.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+NeedsCompilation: yes
+SystemRequirements: C++17
+Depends: R (>= 4.1.0)
+Imports:
+    Rcpp (>= 1.0.10),
+    stats,
+    utils,
+    graphics,
+    grDevices,
+    ggplot2 (>= 3.3.0)
+LinkingTo: Rcpp, RcppArmadillo, BH, RcppProgress, pg
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown, EpiEstim, posterior
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+URL: https://github.com/minimeini/dgtf
+BugReports: https://github.com/minimeini/dgtf/issues
+VignetteBuilder: knitr
+Config/roxygen2/version: 8.1.0
