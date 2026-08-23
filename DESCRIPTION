@@ -5,7 +5,7 @@ Title: Variational and Monte Carlo Inference for Bayesian State-Space
 Version: 0.1.0
 Authors@R: c(
     person(given = "Meini", family = "Tang", role = c("aut", "cre"),
-           email = "mtang41@ucsc.edu",
+           email = "meini.tang@gmail.com",
            comment = c(ORCID = "0000-0001-5338-8772")),
     person(given = "Raquel", family = "Prado", role = "aut",
            email = "rprado@ucsc.edu",
