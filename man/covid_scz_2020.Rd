@@ -9,7 +9,7 @@ A numeric vector of length 518.
 }
 \source{
 California Department of Public Health,
-\url{https://lab.data.ca.gov/dataset/covid-19-time-series-metrics-by-county-and-state-archived}.
+\url{https://data.chhs.ca.gov/dataset/covid-19-time-series-metrics-by-county-and-state}.
 }
 \usage{
 covid_scz_2020

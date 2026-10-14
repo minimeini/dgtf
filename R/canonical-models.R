@@ -243,7 +243,7 @@ dgtf_nb_ar <- function(p = 3L,
 #' Poisson AR model with time-varying coefficients
 #'
 #' Same structure as \code{\link{dgtf_nb_ar}} but with Poisson
-#' observations. Denoted M4 in Tang and Prado (2025).
+#' observations. Denoted M4 in Tang and Prado (2026).
 #'
 #' @param p Integer. Autoregressive order. Default 5.
 #' @param gain,W,seasonality See \code{\link{dgtf_nb_ar}}.

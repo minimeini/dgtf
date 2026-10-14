@@ -16,7 +16,7 @@ A \code{dgtf_model} object.
 }
 \description{
 Same structure as \code{\link{dgtf_nb_ar}} but with Poisson
-observations. Denoted M4 in Tang and Prado (2025).
+observations. Denoted M4 in Tang and Prado (2026).
 }
 \examples{
 m <- dgtf_poisson_ar(p = 5)
