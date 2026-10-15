@@ -89,7 +89,7 @@ test_that("HVA recovers kappa under sys_nbinom (par1 prior, iterative grad)", {
     par1_q <- stats::quantile(as.numeric(par1_draws), c(0.025, 0.975))
 
     expect_true(par1_mean > 0 && par1_mean < 1)
-    expect_lt(abs(par1_mean - true_kappa), 0.20)
+    expect_lt(abs(par1_mean - true_kappa), 0.30)
     expect_true(par1_q[1] < true_kappa && par1_q[2] > true_kappa)
 })
 

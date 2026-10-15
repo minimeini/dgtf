@@ -69,8 +69,6 @@ static arma::vec qforecast0(
 } // func: imp_weights_forecast
 
 
-// ...existing code...
-
 // Fast softplus with clamp for stability
 static inline double softplus_fast(double x) {
     if (x > 20.0) return x;                 // exp overflow safe
@@ -88,7 +86,6 @@ struct QForecastFastConsts {
     bool obs_nb;
     bool obs_pois;
     double yhat_new;
-    // Added: needed to compute Vt correctly
     ObsDist dobs;
     std::string flink;
 };
@@ -113,7 +110,6 @@ static inline QForecastFastConsts make_qf_consts(
     C.obs_pois = (model.dobs.name == "poisson");
     const double yval_t = C.yptr[t_new];
     C.yhat_new = C.link_identity ? yval_t : LinkFunc::mu2ft(yval_t, model.flink);
-    // Added
     C.dobs = model.dobs;
     C.flink = model.flink;
     return C;

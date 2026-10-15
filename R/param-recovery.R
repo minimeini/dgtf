@@ -6,8 +6,7 @@
 #'
 #' @param object A `dgtf_fit`.
 #' @param truth Named numeric vector or named list of true static
-#'   parameter values. Names follow the same convention as the columns
-#'   of `as_draws_matrix(fit)`. Scalar parameters use the bare name,
+#'   parameter values. Scalar parameters use the bare name,
 #'   such as `"W"`, `"rho"`, `"lag_par1"`, `"lag_par2"`,
 #'   `"zintercept"`, and `"zzcoef"`, while multi-element parameters use
 #'   bracketed indices such as `"seas[1]"` and `"seas[2]"`. When a list

@@ -825,10 +825,6 @@ Rcpp::List dgtf_forecast(
         else
         {
             // ----- Shift-system forecast (existing path) -----
-            //
-            // psi_stored is (ntime + 1) x nsample; column i is the
-            // per-sample latent-driver trajectory. Continue forward
-            // by holding the last value (matches the original behavior).
             arma::mat ft = ytmp;
             arma::mat psi = ytmp;
             const double sd_W = std::sqrt(std::max(0.0, mod.derr.par1));

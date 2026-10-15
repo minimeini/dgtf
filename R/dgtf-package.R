@@ -1,8 +1,7 @@
 #' dgtf: Variational and Monte Carlo Inference for Bayesian State-Space Models of Count Data
 #'
-#' The `dgtf` package provides a unified interface to several inference
-#' algorithms (variational Bayes, MCMC, sequential Monte Carlo, and linear
-#' Bayes) for a general class of dynamic generalized transfer function models
+#' The `dgtf` package provides a unified interface to variational Bayes and
+#' MCMC for a general class of dynamic generalized transfer function models
 #' for count data.
 #'
 #' @keywords internal

@@ -10,8 +10,7 @@ param_recovery(object, truth, level = 0.95, digits = 3)
 \item{object}{A \code{dgtf_fit}.}
 
 \item{truth}{Named numeric vector or named list of true static
-parameter values. Names follow the same convention as the columns
-of \code{as_draws_matrix(fit)}. Scalar parameters use the bare name,
+parameter values. Scalar parameters use the bare name,
 such as \code{"W"}, \code{"rho"}, \code{"lag_par1"}, \code{"lag_par2"},
 \code{"zintercept"}, and \code{"zzcoef"}, while multi-element parameters use
 bracketed indices such as \code{"seas[1]"} and \code{"seas[2]"}. When a list

@@ -218,8 +218,7 @@
     stopifnot(is.matrix(qm), ncol(qm) == 3L)
     n <- nrow(qm)
     if (is.null(time)) {
-        time <- seq(0, n - 1) # matches plot_ts() convention in
-        # R/diagnostics.R:109 (time = 0:(T-1))
+        time <- seq(0, n - 1)
     } else {
         # Allow callers to pass `time = band$time` for re-indexing truth onto
         # an existing band's axis. Recycle / truncate to length n if needed.

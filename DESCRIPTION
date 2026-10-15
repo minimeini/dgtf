@@ -16,8 +16,8 @@ Description: Bayesian inference for a general class of state-space models
     Markov chain Monte Carlo. Models are assembled from modular components
     for the observation distribution, link function, gain function, lag
     distribution, system equation, and system error, and support Poisson
-    and negative binomial observations together with seasonal and
-    regression terms. The model class and the hybrid variational approximation are 
+    and negative binomial observations together with seasonality terms. 
+    The model class and the hybrid variational approximation are 
     described in Tang and Prado (2026) <doi:10.1016/j.csda.2026.108368>.
 License: MIT + file LICENSE
 Encoding: UTF-8
@@ -33,7 +33,7 @@ Imports:
     grDevices,
     ggplot2 (>= 3.3.0)
 LinkingTo: Rcpp, RcppArmadillo, BH, RcppProgress, pg
-Suggests: testthat (>= 3.0.0), knitr, rmarkdown, EpiEstim, posterior
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown, EpiEstim
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
 URL: https://github.com/minimeini/dgtf

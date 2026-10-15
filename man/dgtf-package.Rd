@@ -5,9 +5,8 @@
 \alias{dgtf-package}
 \title{dgtf: Variational and Monte Carlo Inference for Bayesian State-Space Models of Count Data}
 \description{
-The \code{dgtf} package provides a unified interface to several inference
-algorithms (variational Bayes, MCMC, sequential Monte Carlo, and linear
-Bayes) for a general class of dynamic generalized transfer function models
+The \code{dgtf} package provides a unified interface to variational Bayes and
+MCMC for a general class of dynamic generalized transfer function models
 for count data.
 }
 \seealso{

@@ -162,8 +162,7 @@ print.dgtf_control <- function(x, ...) {
 #          mh_sd = <numeric>,
 #          prior_name = "<dist>",
 #          prior_param = c(...))
-# We MUST merge into the C++ defaults (not replace), otherwise dropped
-# fields like `mh_sd` cause segfaults when the engine reads them.
+
 
 #' @keywords internal
 control_to_method_settings <- function(control, prior, method, model) {
