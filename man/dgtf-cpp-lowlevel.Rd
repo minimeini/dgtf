@@ -71,9 +71,8 @@ scale.}
 \item{kappa, r}{Failure probability and number of successes of the
 negative binomial lag distribution.}
 
-\item{method}{Name of the inference algorithm, one of \code{"hva"}
-(or \code{"vb"}), \code{"mcmc"}, \code{"smc"}, \code{"ffbs"},
-\code{"tfs"}, \code{"mcs"}, \code{"pl"}, or \code{"linear_bayes"}.}
+\item{method}{Name of the inference algorithm, either \code{"hva"}
+(or \code{"vb"}) or \code{"mcmc"}.}
 
 \item{settings, model_settings, model_opts}{A model settings list, as
 returned by \code{as_settings()}.}

@@ -219,7 +219,7 @@ plot_dgtf_lag <- function(fits,
     }
     if ((sys_type == "shift" || sys_type == "nbinom") &&
         (lag_type == "nbinom" || lag_type == "nbinomp")) {
-        # par1 = kappa, par2 = r  (see R/components.R:175)
+        # par1 = kappa, par2 = r  (see R/components.R)
         # Same NB lag PMF whether the engine runs the sliding-truncated
         # or the iterative-exact form; both share the discretized weights.
         kappa <- pull_param("par1", fit$model$lag$params$par1)

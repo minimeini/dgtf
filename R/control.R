@@ -80,63 +80,6 @@ mcmc_control <- function(iter   = 2000L,
     ))
 }
 
-#' Sequential Monte Carlo control
-#'
-#' Tuning parameters for the sequential Monte Carlo smoothers. These
-#' engines are reached through the low-level [`dgtf_infer()`] interface
-#' with `method` set to `"smc"`, `"ffbs"`, `"tfs"`, `"mcs"`, or `"pl"`,
-#' rather than through [`dgtf()`].
-#'
-#' @param n_particle Number of particles.
-#' @param n_backward Number of backward simulations, used by the
-#'   smoothing variants.
-#' @param resample Resampling strategy, one of `"systematic"` (default),
-#'   `"multinomial"`, or `"stratified"`.
-#' @param ess_threshold Effective sample size threshold that triggers
-#'   resampling.
-#' @param verbose If `TRUE`, the C++ engine prints its progress to the
-#'   console. Default `FALSE`.
-#' @param ... Forwarded to the C++ engine.
-#'
-#' @return A `dgtf_smc_control` object.
-#' @export
-smc_control <- function(n_particle    = 500L,
-                        n_backward    = 100L,
-                        resample      = c("systematic", "multinomial",
-                                          "stratified"),
-                        ess_threshold = 0.5,
-                        verbose       = FALSE,
-                        ...) {
-    resample <- match.arg(resample)
-    new_control("smc", list(
-        num_particle  = as.integer(n_particle),
-        num_backward  = as.integer(n_backward),
-        resample      = resample,
-        ess_threshold = as.numeric(ess_threshold),
-        verbose       = isTRUE(verbose),
-        extra         = list(...)
-    ))
-}
-
-#' Linear Bayes control
-#'
-#' Tuning parameters for the linear Bayes approximation, reached through
-#' the low-level [`dgtf_infer()`] interface with
-#' `method = "linear_bayes"`.
-#'
-#' @param discount_factor Discount factor in (0, 1].
-#' @param ... Forwarded to the C++ engine.
-#'
-#' @return A `dgtf_lba_control` object.
-#' @export
-lba_control <- function(discount_factor = 0.95, ...) {
-    if (discount_factor <= 0 || discount_factor > 1)
-        stop("`discount_factor` must lie in (0, 1].", call. = FALSE)
-    new_control("lba", list(
-        discount_factor = as.numeric(discount_factor),
-        extra           = list(...)
-    ))
-}
 
 #' @export
 print.dgtf_control <- function(x, ...) {

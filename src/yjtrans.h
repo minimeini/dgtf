@@ -11,7 +11,7 @@
 // [[Rcpp::depends(RcppArmadillo)]]
 
 /*
-This script is adapted from Loaiza-Maya's Matlab log_det_sympd code.
+This script is adapted from Loaiza-Maya's Matlab code.
 Below is a reference regarding notations in this script versus notations in Loaiza-Maya's Matlab code and manuscript.
 
 Core VB function is Loaiza-Maya's code: `VB_step.m` and `gradient_compute.m`
