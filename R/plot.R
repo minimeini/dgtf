@@ -95,7 +95,7 @@
     #   psi  -> use the precomputed quantile matrix `fit$fit$psi`.
     #   Rt   -> apply the model's gain function elementwise to the
     #           `n x nsample` posterior draws of psi (via the public
-    #           `extract_state_draws()` from R/draws.R:65) and take row-wise
+    #           `extract_state_draws()`å) and take row-wise
     #           quantiles. No C++ posterior_predict round-trip needed.
     #   yhat -> requires posterior_predict (observation noise sampling), so
     #           use any attached PPC, otherwise warn + run on the fly.

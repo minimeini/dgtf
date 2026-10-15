@@ -910,7 +910,6 @@ public:
 
             arma::vec ycov_tmp = arma::vectorise(y_cov_cast.submat(arma::span(tstart, tend), arma::span(j)));
             y_covered_all.at(j) = arma::mean(ycov_tmp) * 100.;
-            y_covered_all.at(j) *= 100.;
 
             ycov_tmp = arma::vectorise(y_width_cast.submat(arma::span(tstart, tend), arma::span(j)));
             y_width_all.at(j) = arma::mean(ycov_tmp);
