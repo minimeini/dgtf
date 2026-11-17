@@ -1,0 +1,42 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+*.rmarkdown
+*.vscode*
+.DS_Store
+
+# Compiled C++/R artefacts
+src/*.o
+src/*.so
+src/*.dll
+src/*.rds
+src/symbols.rds
+*.rds
+
+# Built docs / outputs
+docs/
+inst/doc/
+*.tar.gz
+*.pdf
+!manuscript/figures/*.pdf
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex*
+
+# User scratch
+script*
+*tmp*
+*hcp*
+*external*
+*copy*
+external_methods.r
+load_data.r
+plot_timeseries_creditble_interval.r
+dgtf.Rcheck/
